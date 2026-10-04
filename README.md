@@ -192,6 +192,25 @@ velocidades. **O RPM mostrado nas interfaces é sempre o real.** Para rotação
 fisicamente exata, marque "Velocidade visual real (1:1)" no painel ou use
 `antiStrobeFactor = 1`.
 
+### Interface do simulador
+
+* **Painel HMI** em cards: Status da máquina, Controle de rotação,
+  Visualização, Treinamento, Informações e Segurança. O estado usa sempre
+  cor + ícone + texto (Desligada, Em operação, Acelerando/Desacelerando,
+  Invertendo sentido, Acionamento manual).
+* **Identificação de componentes:** passe o mouse sobre uma peça (destaque e
+  tooltip) e clique para ver nome, função e descrição no card Informações. O
+  catálogo (`src/components.ts`) cobre apenas peças presentes no GLB.
+* **Treinamento guiado** em 5 etapas (`src/training.ts`): módulo independente
+  que só observa eventos, sem comandar a máquina.
+* **Câmera:** vista inicial 3/4, botão ⌂ Centralizar (tecla H), limites de
+  zoom e de deslocamento. Ajustes em `CAMERA_VIEW` (`src/config.ts`).
+* **Visual:** materiais por tipo de peça (`src/materials.ts`), laboratório
+  procedural, iluminação key/fill/rim + IBL, SSAO e antisserrilhamento só no
+  desktop. Se o FPS cair abaixo de ~28, o SSAO é desligado automaticamente.
+  Opções em `VISUAL` (`ssao`, `enhanceMaterials`, `splash`, `explodeLabels`).
+* A tela de apresentação aparece uma vez por sessão; `?nosplash` a desativa.
+
 ### Girar à mão (manivela)
 
 * **Browser:** arraste a manivela (mouse ou dedo) em círculo. Arrastar fora

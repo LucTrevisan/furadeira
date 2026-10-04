@@ -94,6 +94,7 @@ export class VRPanel {
     // Cabeçalho: título + estado (cor + ícone + texto).
     const head = new Grid("head");
     head.height = "64px";
+    head.width = "920px";
     head.addColumnDefinition(0.5);
     head.addColumnDefinition(0.5);
     const title = text("title", "FURADEIRA MANUAL", 34, C.muted, FONT);
@@ -107,8 +108,8 @@ export class VRPanel {
     this.led.height = "30px";
     this.led.thickness = 0;
     pill.addControl(this.led);
-    this.powerText = text("power", "", 36, C.danger, FONT);
-    this.powerText.width = "380px";
+    this.powerText = text("power", "", 30, C.danger, FONT);
+    this.powerText.width = "400px";
     this.powerText.paddingLeft = "14px";
     this.powerText.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
     pill.addControl(this.powerText);
@@ -118,6 +119,7 @@ export class VRPanel {
     // Leitura principal: RPM grande.
     const readout = new Rectangle("readout");
     readout.height = "210px";
+    readout.width = "920px";
     readout.background = C.inset;
     readout.color = C.border;
     readout.thickness = 2;
@@ -132,10 +134,10 @@ export class VRPanel {
     sub.height = "54px";
     sub.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
     this.setpointText = text("setpoint", "", 32, C.muted, FONT);
-    this.setpointText.width = "430px";
+    this.setpointText.width = "460px";
     sub.addControl(this.setpointText);
     this.dirText = text("dir", "", 32, C.text, FONT);
-    this.dirText.width = "430px";
+    this.dirText.width = "400px";
     sub.addControl(this.dirText);
     rcol.addControl(sub);
     col.addControl(readout);
