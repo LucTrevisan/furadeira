@@ -1,0 +1,26 @@
+{
+  "name": "furadeira-webxr",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Furadeira manual interativa em WebXR (Babylon.js + TypeScript + Vite)",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "dev:https": "vite --mode https",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "preview:https": "vite preview --mode https",
+    "typecheck": "tsc --noEmit",
+    "esp32:sim": "node tools/fake-esp32.mjs"
+  },
+  "dependencies": {
+    "@babylonjs/core": "9.29.0",
+    "@babylonjs/gui": "9.29.0",
+    "@babylonjs/loaders": "9.29.0"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-basic-ssl": "^2.3.0",
+    "typescript": "~5.9.2",
+    "vite": "^8.3.2"
+  }
+}

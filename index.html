@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#14171b" />
+    <title>Furadeira Manual WebXR</title>
+  </head>
+  <body>
+    <canvas id="renderCanvas" touch-action="none" aria-label="Visualização 3D da furadeira"></canvas>
+
+    <!-- Barra superior: título, status e botão VR (não cobre o canvas) -->
+    <header class="topbar">
+      <div class="brand">
+        <span class="brand-mark" aria-hidden="true"></span>
+        <div>
+          <h1>Furadeira Manual</h1>
+          <p id="statusMsg" class="status" role="status">Inicializando…</p>
+        </div>
+      </div>
+      <button id="btnVR" class="btn btn-vr" type="button" disabled>ENTRAR EM VR</button>
+    </header>
+
+    <!-- Cartão de carregamento (centralizado, não ocupa a tela inteira) -->
+    <div id="loading" class="loading" aria-live="polite">
+      <p>Carregando modelo 3D…</p>
+      <div class="progress"><div id="loadingBar" class="progress-bar"></div></div>
+      <p id="loadingPct" class="loading-pct">0%</p>
+    </div>
+
+    <!-- Painel de controle industrial -->
+    <aside id="panel" class="panel" aria-label="Painel de controle">
+      <button id="panelToggle" class="panel-toggle" type="button" aria-expanded="true">
+        <span>PAINEL DE CONTROLE</span><span class="chev" aria-hidden="true"></span>
+      </button>
+
+      <div class="panel-body">
+        <section class="readout">
+          <div class="state-row">
+            <span id="led" class="led" aria-hidden="true"></span>
+            <span id="powerLabel" class="power-label">DESLIGADA</span>
+          </div>
+          <div class="rpm-display">
+            <span id="rpmValue" class="rpm-value">0</span>
+            <span class="rpm-unit">RPM</span>
+          </div>
+          <div class="dir-row">
+            <svg id="dirIcon" class="dir-icon" viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M12 4a8 8 0 1 1-7.4 5" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" />
+              <path d="M2.2 5.6 4.6 9.3 8.4 7.3" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" />
+            </svg>
+            <span id="dirLabel">HORÁRIO</span>
+          </div>
+        </section>
+
+        <section class="setpoint">
+          <label for="rpmSlider">Velocidade selecionada: <strong id="setpointValue">0</strong> RPM</label>
+          <input id="rpmSlider" type="range" min="0" max="3000" step="10" value="0" />
+          <div class="scale"><span>0</span><span>1500</span><span>3000</span></div>
+        </section>
+
+        <section class="buttons">
+          <button id="btnOn" class="btn btn-on" type="button">LIGAR</button>
+          <button id="btnOff" class="btn btn-off" type="button">DESLIGAR</button>
+          <button id="btnDir" class="btn btn-dir" type="button">INVERTER ROTAÇÃO</button>
+          <button id="btnReset" class="btn btn-reset" type="button">RESET</button>
+        </section>
+
+        <section class="explode">
+          <div class="explode-head">
+            <label for="explodeSlider">VISTA EXPLODIDA</label>
+            <strong id="explodeValue">0%</strong>
+          </div>
+          <input id="explodeSlider" type="range" min="0" max="100" step="1" value="0" />
+          <button id="btnExplode" class="btn btn-explode" type="button">EXPLODIR</button>
+        </section>
+
+        <section class="extras">
+          <button id="btnFocus" class="btn btn-ghost" type="button">FOCAR MANDRIL</button>
+          <label class="check">
+            <input id="chkRealSpeed" type="checkbox" />
+            Velocidade visual real (1:1)
+          </label>
+        </section>
+
+        <details class="iot">
+          <summary>Integração ESP32 (WebSocket)</summary>
+          <div class="iot-body">
+            <input id="wsUrl" type="text" spellcheck="false" autocomplete="off" aria-label="URL do WebSocket" />
+            <div class="iot-row">
+              <button id="btnWs" class="btn btn-ghost" type="button">CONECTAR</button>
+              <span id="wsStatus" class="badge">desconectado</span>
+            </div>
+            <p class="hint">Formato: <code>{"rpm":1500,"power":true,"direction":1}</code></p>
+          </div>
+        </details>
+      </div>
+    </aside>
+
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
