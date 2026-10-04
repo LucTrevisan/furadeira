@@ -3,99 +3,273 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-    <meta name="theme-color" content="#14171b" />
-    <title>Furadeira Manual WebXR</title>
+    <meta name="theme-color" content="#0f1215" />
+    <meta name="description" content="Simulador interativo WebXR de furadeira manual para treinamento industrial." />
+    <title>Furadeira Manual · Simulador WebXR</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500;700&display=swap"
+    />
   </head>
   <body>
-    <canvas id="renderCanvas" touch-action="none" aria-label="Visualização 3D da furadeira"></canvas>
+    <svg width="0" height="0" style="position: absolute" aria-hidden="true">
+      <defs>
+        <symbol id="i-power" viewBox="0 0 24 24"><path d="M12 3v8M6.3 6.8a8 8 0 1 0 11.4 0" /></symbol>
+        <symbol id="i-stop" viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12" rx="1.5" /></symbol>
+        <symbol id="i-swap" viewBox="0 0 24 24"><path d="M4 8h13l-3-3M20 16H7l3 3" /></symbol>
+        <symbol id="i-reset" viewBox="0 0 24 24"><path d="M4 12a8 8 0 1 0 2.4-5.7M4 4v4.5h4.5" /></symbol>
+        <symbol id="i-home" viewBox="0 0 24 24"><path d="M4 11 12 4l8 7M6 9.5V20h12V9.5" /></symbol>
+        <symbol id="i-target" viewBox="0 0 24 24"><circle cx="12" cy="12" r="7" /><circle cx="12" cy="12" r="2.2" /><path d="M12 2v3M12 19v3M2 12h3M19 12h3" /></symbol>
+        <symbol id="i-explode" viewBox="0 0 24 24"><rect x="9" y="9" width="6" height="6" rx="1" /><path d="M5 5l2.5 2.5M19 5l-2.5 2.5M5 19l2.5-2.5M19 19l-2.5-2.5" /></symbol>
+        <symbol id="i-vr" viewBox="0 0 24 24"><path d="M3.5 8.5A1.5 1.5 0 0 1 5 7h14a1.5 1.5 0 0 1 1.5 1.5v6A1.5 1.5 0 0 1 19 16h-3.3a1.5 1.5 0 0 1-1.3-.8l-1.1-2a1.5 1.5 0 0 0-2.6 0l-1.1 2a1.5 1.5 0 0 1-1.3.8H5a1.5 1.5 0 0 1-1.5-1.5z" /></symbol>
+        <symbol id="i-panel" viewBox="0 0 24 24"><rect x="3.5" y="4.5" width="17" height="15" rx="2" /><path d="M14.5 4.5v15" /></symbol>
+        <symbol id="i-close" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18" /></symbol>
+        <symbol id="i-shield" viewBox="0 0 24 24"><path d="M12 3 5 6v5c0 4.4 3 8 7 10 4-2 7-5.6 7-10V6z" /><path d="M12 8v5M12 16h.01" /></symbol>
+        <symbol id="i-cap" viewBox="0 0 24 24"><path d="M2.5 9 12 4.5 21.5 9 12 13.5zM6.5 11v4.5c1.6 1.6 3.4 2.4 5.5 2.4s3.9-.8 5.5-2.4V11M21.5 9v5" /></symbol>
+        <symbol id="i-info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" /><path d="M12 11v6M12 7.5h.01" /></symbol>
+      </defs>
+    </svg>
 
-    <!-- Barra superior: título, status e botão VR (não cobre o canvas) -->
-    <header class="topbar">
-      <div class="brand">
-        <span class="brand-mark" aria-hidden="true"></span>
-        <div>
-          <h1>Furadeira Manual</h1>
-          <p id="statusMsg" class="status" role="status">Inicializando…</p>
+    <div id="app" class="app">
+      <!-- ============================ HEADER ============================ -->
+      <header class="appbar">
+        <div class="brand">
+          <span class="brand-mark" aria-hidden="true"></span>
+          <div class="brand-text">
+            <h1>Furadeira Manual</h1>
+            <p>Simulador interativo <span aria-hidden="true">•</span> Treinamento industrial</p>
+          </div>
         </div>
-      </div>
-      <button id="btnVR" class="btn btn-vr" type="button" disabled>ENTRAR EM VR</button>
-    </header>
 
-    <!-- Cartão de carregamento (centralizado, não ocupa a tela inteira) -->
-    <div id="loading" class="loading" aria-live="polite">
-      <p>Carregando modelo 3D…</p>
-      <div class="progress"><div id="loadingBar" class="progress-bar"></div></div>
-      <p id="loadingPct" class="loading-pct">0%</p>
+        <div id="sysState" class="sys-state" data-state="loading" role="status" aria-live="polite">
+          <span class="dot" aria-hidden="true"></span><span id="sysStateText">Carregando</span>
+        </div>
+
+        <div class="appbar-actions">
+          <span id="xrBadge" class="xr-badge" data-state="checking" title="Verificando suporte a WebXR">
+            <span class="dot" aria-hidden="true"></span><span id="xrBadgeText">WebXR…</span>
+          </span>
+          <button id="btnVR" class="btn btn-vr" type="button" disabled aria-label="Entrar em realidade virtual">
+            <svg class="ico" aria-hidden="true"><use href="#i-vr" /></svg><span>Entrar em VR</span>
+          </button>
+          <button id="btnPanel" class="btn btn-icon btn-panel" type="button" aria-controls="panel" aria-expanded="true" aria-label="Mostrar ou ocultar controles">
+            <svg class="ico" aria-hidden="true"><use href="#i-panel" /></svg><span class="lbl">Controles</span>
+          </button>
+        </div>
+      </header>
+
+      <main class="workspace">
+        <!-- ========================== VIEWPORT 3D ========================== -->
+        <section class="viewport" aria-label="Visualização 3D">
+          <canvas id="renderCanvas" touch-action="none" aria-label="Modelo 3D interativo da furadeira manual" tabindex="0"></canvas>
+
+          <div class="vp-toolbar" role="toolbar" aria-label="Câmera">
+            <button id="btnHome" class="btn btn-tool" type="button" title="Centralizar equipamento (H)">
+              <svg class="ico" aria-hidden="true"><use href="#i-home" /></svg><span>Centralizar</span>
+            </button>
+            <button id="btnFocus" class="btn btn-tool" type="button" aria-pressed="false" title="Aproximar a câmera do mandril">
+              <svg class="ico" aria-hidden="true"><use href="#i-target" /></svg><span id="btnFocusText">Focar mandril</span>
+            </button>
+          </div>
+
+          <p id="statusMsg" class="vp-status" role="status">Inicializando…</p>
+
+          <div id="tooltip" class="tooltip" role="tooltip" hidden>
+            <strong id="tooltipName"></strong>
+            <span id="tooltipRole"></span>
+          </div>
+
+          <div id="toasts" class="toasts" aria-live="polite" aria-atomic="false"></div>
+        </section>
+
+        <!-- ========================= PAINEL HMI ============================ -->
+        <aside id="panel" class="panel" aria-label="Painel de controle">
+          <div class="panel-head">
+            <span>Painel de controle</span>
+            <button id="panelToggle" class="btn btn-icon btn-close" type="button" aria-controls="panel" aria-expanded="true" aria-label="Ocultar controles">
+              <svg class="ico" aria-hidden="true"><use href="#i-close" /></svg>
+            </button>
+          </div>
+
+          <div class="panel-body">
+            <!-- STATUS -->
+            <section class="card card-status" aria-labelledby="h-status">
+              <header class="card-h"><h2 id="h-status">Status da máquina</h2><span id="modeTag" class="tag">Motor</span></header>
+              <div id="stateBox" class="state" data-state="off">
+                <span id="led" class="led" aria-hidden="true"></span>
+                <svg id="stateIcon" class="ico state-ico" aria-hidden="true"><use href="#i-stop" /></svg>
+                <span id="powerLabel" class="state-label">Desligada</span>
+              </div>
+              <div class="metrics">
+                <div class="metric metric-rpm">
+                  <span class="m-label">RPM</span>
+                  <span class="m-value"><span id="rpmValue">0</span></span>
+                  <div class="rpm-bar" aria-hidden="true"><div id="rpmBar"></div></div>
+                </div>
+                <div class="metric">
+                  <span class="m-label">Sentido</span>
+                  <span class="m-dir">
+                    <svg id="dirIcon" class="dir-icon" viewBox="0 0 24 24" aria-hidden="true">
+                      <path d="M12 4a8 8 0 1 1-7.4 5" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" />
+                      <path d="M2.2 5.6 4.6 9.3 8.4 7.3" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" />
+                    </svg>
+                    <span id="dirLabel">Horário</span>
+                  </span>
+                </div>
+              </div>
+            </section>
+
+            <!-- CONTROLE DE ROTAÇÃO -->
+            <section class="card" aria-labelledby="h-rot">
+              <header class="card-h"><h2 id="h-rot">Controle de rotação</h2></header>
+              <div class="field-head">
+                <label for="rpmSlider">Velocidade</label>
+                <span class="readout"><output id="setpointValue" for="rpmSlider">0</output><span class="unit">RPM</span></span>
+              </div>
+              <input id="rpmSlider" class="range" type="range" min="0" max="3000" step="10" value="0" aria-describedby="rpmScale" />
+              <div id="rpmScale" class="scale" aria-hidden="true">
+                <span>0</span><span>750</span><span>1500</span><span>2250</span><span>3000 RPM</span>
+              </div>
+              <div class="actions">
+                <button id="btnOn" class="btn btn-primary" type="button">
+                  <svg class="ico" aria-hidden="true"><use href="#i-power" /></svg><span>Ligar</span>
+                </button>
+                <button id="btnOff" class="btn btn-danger" type="button">
+                  <svg class="ico" aria-hidden="true"><use href="#i-stop" /></svg><span>Desligar</span>
+                </button>
+                <button id="btnDir" class="btn btn-secondary" type="button">
+                  <svg class="ico" aria-hidden="true"><use href="#i-swap" /></svg><span>Inverter rotação</span>
+                </button>
+                <button id="btnReset" class="btn btn-secondary" type="button">
+                  <svg class="ico" aria-hidden="true"><use href="#i-reset" /></svg><span>Reset</span>
+                </button>
+              </div>
+            </section>
+
+            <!-- VISUALIZAÇÃO -->
+            <section class="card" aria-labelledby="h-vis">
+              <header class="card-h"><h2 id="h-vis">Visualização</h2></header>
+              <div class="field-head">
+                <label for="explodeSlider">Vista explodida</label>
+                <span class="readout"><output id="explodeValue" for="explodeSlider">0%</output></span>
+              </div>
+              <input id="explodeSlider" class="range" type="range" min="0" max="100" step="1" value="0" />
+              <button id="btnExplode" class="btn btn-secondary btn-block" type="button">
+                <svg class="ico" aria-hidden="true"><use href="#i-explode" /></svg><span id="btnExplodeText">Explodir componentes</span>
+              </button>
+              <div class="switches">
+                <label class="switch">
+                  <input id="chkInspect" type="checkbox" checked />
+                  <span class="track" aria-hidden="true"></span>
+                  <span>Identificar peças com o mouse</span>
+                </label>
+                <label class="switch">
+                  <input id="chkRealSpeed" type="checkbox" />
+                  <span class="track" aria-hidden="true"></span>
+                  <span>Velocidade visual real (1:1)</span>
+                </label>
+              </div>
+            </section>
+
+            <!-- TREINAMENTO -->
+            <section id="trainCard" class="card card-train" data-active="false" aria-labelledby="h-train">
+              <header class="card-h">
+                <h2 id="h-train"><svg class="ico" aria-hidden="true"><use href="#i-cap" /></svg>Treinamento</h2>
+                <span id="trainStep" class="tag tag-blue">5 etapas</span>
+              </header>
+              <div id="trainProgress" class="steps" aria-hidden="true"></div>
+              <h3 id="trainTitle" class="train-title">Treinamento guiado</h3>
+              <p id="trainText" class="train-text"></p>
+              <p id="trainGoal" class="train-goal" hidden></p>
+              <div class="train-actions">
+                <button id="btnTrain" class="btn btn-accent" type="button">Iniciar treinamento</button>
+                <button id="btnTrainStop" class="btn btn-ghost" type="button" hidden>Encerrar</button>
+              </div>
+            </section>
+
+            <!-- INFORMAÇÕES -->
+            <section class="card" aria-labelledby="h-info">
+              <header class="card-h"><h2 id="h-info"><svg class="ico" aria-hidden="true"><use href="#i-info" /></svg>Informações</h2></header>
+              <div id="compInfo" class="comp-info" data-empty="true" aria-live="polite">
+                <p class="comp-empty">Selecione uma peça no modelo 3D para ver o nome, a função e uma descrição.</p>
+                <div class="comp-body">
+                  <h3 id="compName"></h3>
+                  <p class="comp-role"><span>Função</span><span id="compRole"></span></p>
+                  <p id="compDesc" class="comp-desc"></p>
+                  <p class="comp-part">Peça no CAD: <code id="compPart"></code></p>
+                </div>
+              </div>
+
+              <details class="more">
+                <summary>Comandos e atalhos</summary>
+                <ul class="keys">
+                  <li><kbd>Espaço</kbd> liga / desliga</li>
+                  <li><kbd>←</kbd> <kbd>→</kbd> ajusta a velocidade</li>
+                  <li><kbd>R</kbd> inverte a rotação</li>
+                  <li><kbd>E</kbd> vista explodida</li>
+                  <li><kbd>H</kbd> centraliza a câmera</li>
+                  <li>Arraste a <strong>manivela</strong> para girar à mão</li>
+                </ul>
+              </details>
+
+              <details class="more iot">
+                <summary>Integração ESP32 (WebSocket)</summary>
+                <div class="iot-body">
+                  <input id="wsUrl" type="text" spellcheck="false" autocomplete="off" aria-label="URL do WebSocket" />
+                  <div class="iot-row">
+                    <button id="btnWs" class="btn btn-ghost" type="button">Conectar</button>
+                    <span id="wsStatus" class="badge">desconectado</span>
+                  </div>
+                  <p class="hint">Formato: <code>{"rpm":1500,"power":true,"direction":1}</code></p>
+                </div>
+              </details>
+            </section>
+
+            <!-- SEGURANÇA -->
+            <section class="card card-safety" aria-labelledby="h-safe">
+              <header class="card-h"><h2 id="h-safe"><svg class="ico" aria-hidden="true"><use href="#i-shield" /></svg>Segurança</h2></header>
+              <p>Utilize os controles somente após compreender o funcionamento do equipamento. Em uma furadeira real, use óculos de proteção e mantenha mãos e roupas longe do mandril.</p>
+            </section>
+
+            <p class="panel-foot">Babylon.js <span aria-hidden="true">•</span> WebXR <span aria-hidden="true">•</span> Digital twin de treinamento</p>
+          </div>
+        </aside>
+      </main>
     </div>
 
-    <!-- Painel de controle industrial -->
-    <aside id="panel" class="panel" aria-label="Painel de controle">
-      <button id="panelToggle" class="panel-toggle" type="button" aria-expanded="true">
-        <span>PAINEL DE CONTROLE</span><span class="chev" aria-hidden="true"></span>
-      </button>
-
-      <div class="panel-body">
-        <section class="readout">
-          <div class="state-row">
-            <span id="led" class="led" aria-hidden="true"></span>
-            <span id="powerLabel" class="power-label">DESLIGADA</span>
-          </div>
-          <div class="rpm-display">
-            <span id="rpmValue" class="rpm-value">0</span>
-            <span class="rpm-unit">RPM</span>
-          </div>
-          <div class="dir-row">
-            <svg id="dirIcon" class="dir-icon" viewBox="0 0 24 24" aria-hidden="true">
-              <path d="M12 4a8 8 0 1 1-7.4 5" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" />
-              <path d="M2.2 5.6 4.6 9.3 8.4 7.3" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" />
-            </svg>
-            <span id="dirLabel">HORÁRIO</span>
-          </div>
-        </section>
-
-        <section class="setpoint">
-          <label for="rpmSlider">Velocidade selecionada: <strong id="setpointValue">0</strong> RPM</label>
-          <input id="rpmSlider" type="range" min="0" max="3000" step="10" value="0" />
-          <div class="scale"><span>0</span><span>1500</span><span>3000</span></div>
-        </section>
-
-        <section class="buttons">
-          <button id="btnOn" class="btn btn-on" type="button">LIGAR</button>
-          <button id="btnOff" class="btn btn-off" type="button">DESLIGAR</button>
-          <button id="btnDir" class="btn btn-dir" type="button">INVERTER ROTAÇÃO</button>
-          <button id="btnReset" class="btn btn-reset" type="button">RESET</button>
-        </section>
-
-        <section class="explode">
-          <div class="explode-head">
-            <label for="explodeSlider">VISTA EXPLODIDA</label>
-            <strong id="explodeValue">0%</strong>
-          </div>
-          <input id="explodeSlider" type="range" min="0" max="100" step="1" value="0" />
-          <button id="btnExplode" class="btn btn-explode" type="button">EXPLODIR</button>
-        </section>
-
-        <section class="extras">
-          <button id="btnFocus" class="btn btn-ghost" type="button">FOCAR MANDRIL</button>
-          <label class="check">
-            <input id="chkRealSpeed" type="checkbox" />
-            Velocidade visual real (1:1)
-          </label>
-        </section>
-
-        <details class="iot">
-          <summary>Integração ESP32 (WebSocket)</summary>
-          <div class="iot-body">
-            <input id="wsUrl" type="text" spellcheck="false" autocomplete="off" aria-label="URL do WebSocket" />
-            <div class="iot-row">
-              <button id="btnWs" class="btn btn-ghost" type="button">CONECTAR</button>
-              <span id="wsStatus" class="badge">desconectado</span>
-            </div>
-            <p class="hint">Formato: <code>{"rpm":1500,"power":true,"direction":1}</code></p>
-          </div>
-        </details>
+    <!-- ========================= CARREGAMENTO ============================ -->
+    <div id="loading" class="loading-screen" aria-live="polite">
+      <div class="ls-card">
+        <span class="brand-mark lg" aria-hidden="true"></span>
+        <h2>Furadeira Manual</h2>
+        <p class="ls-sub">Simulador industrial WebXR</p>
+        <p id="loadingMsg" class="ls-msg">Carregando ambiente 3D…</p>
+        <div class="progress" role="progressbar" aria-label="Progresso do carregamento" aria-valuemin="0" aria-valuemax="100">
+          <div id="loadingBar" class="progress-bar"></div>
+        </div>
+        <p id="loadingPct" class="ls-pct">0%</p>
+        <p class="ls-foot">Babylon.js <span aria-hidden="true">•</span> WebXR</p>
       </div>
-    </aside>
+    </div>
+
+    <!-- ===================== TELA DE APRESENTAÇÃO ======================== -->
+    <div id="splash" class="splash" hidden>
+      <div class="splash-card" role="dialog" aria-modal="true" aria-labelledby="splashTitle">
+        <span class="brand-mark lg" aria-hidden="true"></span>
+        <h2 id="splashTitle">Furadeira Manual</h2>
+        <p class="splash-sub">Simulador interativo WebXR</p>
+        <p class="splash-text">Treinamento e visualização de sistemas mecânicos: transmissão por engrenagens, mandril e acionamento manual.</p>
+        <div class="splash-actions">
+          <button id="btnStart" class="btn btn-primary btn-lg" type="button">Iniciar simulação</button>
+          <button id="btnSplashVR" class="btn btn-vr btn-lg" type="button" disabled>
+            <svg class="ico" aria-hidden="true"><use href="#i-vr" /></svg><span>Entrar em VR</span>
+          </button>
+        </div>
+        <p id="splashXr" class="splash-foot">Desktop, tablet e Meta Quest</p>
+      </div>
+    </div>
 
     <script type="module" src="/src/main.ts"></script>
   </body>

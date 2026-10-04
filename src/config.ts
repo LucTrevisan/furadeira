@@ -225,6 +225,30 @@ export const VISUAL = {
   shadows: true,
   /** Clique em peças para identificá-las (somente desktop). */
   debugPick: true,
+  /**
+   * Pós-processamento SOMENTE no desktop (a câmera do VR é outra e não o
+   * recebe): oclusão de ambiente (SSAO2), antisserrilhamento e tone mapping.
+   */
+  ssao: true,
+  /** Melhora a apresentação dos materiais do CAD (ver materials.ts). */
+  enhanceMaterials: true,
+  /** Tela de apresentação ao abrir (uma vez por sessão; ?nosplash a desativa). */
+  splash: true,
+  /** Rótulos dos componentes na vista explodida (desktop). */
+  explodeLabels: true,
+};
+
+/** Câmera desktop: vista inicial 3/4 e limites. */
+export const CAMERA_VIEW = {
+  /** Ângulo horizontal a partir da posição do operador (graus). */
+  yawDeg: -34,
+  /** Inclinação vertical: 0 = de cima; 90 = horizontal (graus). */
+  pitchDeg: 69,
+  /** Fração da largura da viewport ocupada pelo equipamento. */
+  fill: 0.96,
+  /** Zoom mínimo/máximo em relação à distância inicial. */
+  minZoom: 0.3,
+  maxZoom: 2.6,
 };
 
 export const SCENE = {

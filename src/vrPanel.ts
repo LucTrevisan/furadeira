@@ -4,6 +4,7 @@ import {
   Button,
   Control,
   Ellipse,
+  Grid,
   Rectangle,
   Slider,
   StackPanel,
@@ -19,11 +20,28 @@ export interface VRPanelActions {
   explodeSet: (factor: number) => void;
 }
 
+/** Mesmas cores do design system (style.css). */
+const C = {
+  bg: "#14181c",
+  card: "#1a1f24",
+  inset: "#0b0e11",
+  border: "#36404a",
+  text: "#e8ecef",
+  muted: "#8a96a2",
+  accent: "#f2a33a",
+  success: "#34c27a",
+  successBg: "#23955c",
+  danger: "#ea5455",
+  neutral: "#2a323a",
+};
+const FONT = "Inter, 'Segoe UI', Roboto, sans-serif";
+const MONO = "'JetBrains Mono', Consolas, monospace";
+
 /**
- * Painel 3D para o headset. Elementos HTML NÃO aparecem dentro do VR, por
- * isso os mesmos comandos são oferecidos aqui (GUI do Babylon numa malha),
- * clicáveis com o raio dos controles. Chama exatamente as mesmas funções
- * do DrillController que o painel HTML.
+ * Painel espacial para o headset. Elementos HTML NÃO aparecem dentro do VR,
+ * por isso os comandos existem aqui (GUI do Babylon numa malha), clicáveis
+ * com o raio dos controles. Alvos grandes; chama as MESMAS funções do
+ * DrillController que o painel HTML.
  */
 export class VRPanel {
   readonly mesh: Mesh;
@@ -34,6 +52,7 @@ export class VRPanel {
   private readonly setpointText: TextBlock;
   private readonly dirText: TextBlock;
   private readonly slider: Slider;
+  private readonly powerBtn: Button;
   private readonly inspectBtn: Button;
   private readonly explodeBtn: Button;
   private readonly explodeSlider: Slider;
@@ -41,100 +60,140 @@ export class VRPanel {
   private syncingSlider = false;
   private syncingExplode = false;
 
-  constructor(scene: Scene, drill: DrillController, actions: VRPanelActions) {
-    // Proporção do plano = proporção da textura (1024 × 830).
-    this.mesh = MeshBuilder.CreatePlane("painel_vr", { width: 0.44, height: 0.44 * (830 / 1024) }, scene);
+  constructor(
+    scene: Scene,
+    drill: DrillController,
+    actions: VRPanelActions,
+  ) {
+    // Proporção do plano = proporção da textura (1024 × 860).
+    this.mesh = MeshBuilder.CreatePlane("painel_vr", { width: 0.46, height: 0.46 * (860 / 1024) }, scene);
     this.mesh.isPickable = true;
-    this.adt = AdvancedDynamicTexture.CreateForMesh(this.mesh, 1024, 830);
+    this.adt = AdvancedDynamicTexture.CreateForMesh(this.mesh, 1024, 860);
 
     const frame = new Rectangle("frame");
-    frame.background = "#1d2227";
-    frame.color = "#f5a623";
-    frame.thickness = 6;
-    frame.cornerRadius = 24;
+    frame.background = C.bg;
+    frame.color = C.border;
+    frame.thickness = 4;
+    frame.cornerRadius = 28;
     this.adt.addControl(frame);
+
+    const accent = new Rectangle("accent");
+    accent.height = "8px";
+    accent.thickness = 0;
+    accent.background = C.accent;
+    accent.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+    frame.addControl(accent);
 
     const col = new StackPanel("col");
     col.isVertical = true;
-    col.paddingTop = "18px";
+    col.paddingTop = "26px";
+    col.paddingLeft = "40px";
+    col.paddingRight = "40px";
     frame.addControl(col);
 
-    // Linha de estado: LED + LIGADA/DESLIGADA + sentido
-    const stateRow = row("stateRow", 80);
+    // Cabeçalho: título + estado (cor + ícone + texto).
+    const head = new Grid("head");
+    head.height = "64px";
+    head.addColumnDefinition(0.5);
+    head.addColumnDefinition(0.5);
+    const title = text("title", "FURADEIRA MANUAL", 34, C.muted, FONT);
+    title.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
+    head.addControl(title, 0, 0);
+    const pill = new StackPanel("pill");
+    pill.isVertical = false;
+    pill.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_RIGHT;
     this.led = new Ellipse("led");
-    this.led.width = "44px";
-    this.led.height = "44px";
+    this.led.width = "30px";
+    this.led.height = "30px";
     this.led.thickness = 0;
-    this.led.background = "#5a1a1c";
-    stateRow.addControl(this.led);
-    this.powerText = text("power", "DESLIGADA", 52, "#ff8a8d", 420);
-    this.powerText.paddingLeft = "18px";
-    stateRow.addControl(this.powerText);
-    this.dirText = text("dir", "↻ HORÁRIO", 40, "#9aa5b0", 400);
-    stateRow.addControl(this.dirText);
-    col.addControl(stateRow);
+    pill.addControl(this.led);
+    this.powerText = text("power", "", 36, C.danger, FONT);
+    this.powerText.width = "380px";
+    this.powerText.paddingLeft = "14px";
+    this.powerText.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
+    pill.addControl(this.powerText);
+    head.addControl(pill, 0, 1);
+    col.addControl(head);
 
-    // RPM atual (grande)
-    this.rpmText = text("rpm", "0 RPM", 110, "#f5a623", 980);
-    this.rpmText.height = "130px";
-    this.rpmText.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
-    col.addControl(this.rpmText);
+    // Leitura principal: RPM grande.
+    const readout = new Rectangle("readout");
+    readout.height = "210px";
+    readout.background = C.inset;
+    readout.color = C.border;
+    readout.thickness = 2;
+    readout.cornerRadius = 18;
+    const rcol = new StackPanel("rcol");
+    readout.addControl(rcol);
+    this.rpmText = text("rpm", "0 RPM", 112, C.accent, MONO);
+    this.rpmText.height = "140px";
+    rcol.addControl(this.rpmText);
+    const sub = new StackPanel("sub");
+    sub.isVertical = false;
+    sub.height = "54px";
+    sub.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
+    this.setpointText = text("setpoint", "", 32, C.muted, FONT);
+    this.setpointText.width = "430px";
+    sub.addControl(this.setpointText);
+    this.dirText = text("dir", "", 32, C.text, FONT);
+    this.dirText.width = "430px";
+    sub.addControl(this.dirText);
+    rcol.addControl(sub);
+    col.addControl(readout);
+    col.addControl(spacer(22));
 
-    // Velocidade selecionada + slider
-    this.setpointText = text("setpoint", "", 36, "#c9d1d9", 900);
-    this.setpointText.height = "50px";
-    col.addControl(this.setpointText);
-
-    this.slider = new Slider("slider");
-    this.slider.minimum = 0;
-    this.slider.maximum = DRILL.maxRPM;
+    // Velocidade: [ − ]  slider  [ + ]
+    const speed = new StackPanel("speed");
+    speed.isVertical = false;
+    speed.height = "110px";
+    speed.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
+    speed.addControl(button("minus", "−", C.neutral, () => drill.setMandrilRPM(drill.state.setpointRPM - DRILL.rpmStep), 140, 64));
+    this.slider = slider("slider", 0, DRILL.maxRPM, 580);
     this.slider.step = 50;
-    this.slider.height = "70px";
-    this.slider.width = "900px";
-    this.slider.color = "#f5a623";
-    this.slider.background = "#3a424a";
-    this.slider.thumbWidth = "56px";
-    this.slider.isThumbCircle = true;
     this.slider.onValueChangedObservable.add((v) => {
       if (!this.syncingSlider) drill.setMandrilRPM(v);
     });
-    col.addControl(this.slider);
+    speed.addControl(this.slider);
+    speed.addControl(button("plus", "+", C.neutral, () => drill.setMandrilRPM(drill.state.setpointRPM + DRILL.rpmStep), 140, 64));
+    col.addControl(speed);
+    col.addControl(spacer(10));
 
-    // Botões (mesmas funções do painel HTML)
-    const r1 = row("r1", 120);
-    r1.addControl(button("on", "LIGAR", "#1f8f4e", () => drill.startDrill()));
-    r1.addControl(button("off", "DESLIGAR", "#b3363a", () => drill.stopDrill()));
-    r1.addControl(button("minus", "− RPM", "#3a424a", () => drill.setMandrilRPM(drill.state.setpointRPM - DRILL.rpmStep), 200));
-    r1.addControl(button("plus", "+ RPM", "#3a424a", () => drill.setMandrilRPM(drill.state.setpointRPM + DRILL.rpmStep), 200));
-    col.addControl(r1);
+    // Ações principais: LIGAR/DESLIGAR (um botão grande) + INVERTER.
+    const main = new StackPanel("main");
+    main.isVertical = false;
+    main.height = "128px";
+    main.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
+    this.powerBtn = button("power", "LIGAR", C.successBg, () => drill.togglePower(), 470, 48);
+    main.addControl(this.powerBtn);
+    main.addControl(button("dir", "INVERTER", C.neutral, () => drill.toggleDirection(), 410, 44));
+    col.addControl(main);
 
-    const r2 = row("r2", 120);
-    r2.addControl(button("dir", "INVERTER", "#a06a10", () => drill.toggleDirection()));
-    r2.addControl(button("reset", "RESET", "#3a424a", () => actions.reset()));
-    this.inspectBtn = button("inspect", "APROXIMAR", "#3b8beb", () => actions.toggleInspect(), 400);
-    r2.addControl(this.inspectBtn);
-    col.addControl(r2);
+    // Funções secundárias.
+    const sec = new StackPanel("sec");
+    sec.isVertical = false;
+    sec.height = "110px";
+    sec.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
+    sec.addControl(button("reset", "RESET", C.neutral, () => actions.reset(), 220, 34));
+    this.inspectBtn = button("inspect", "APROXIMAR", C.neutral, () => actions.toggleInspect(), 300, 34);
+    sec.addControl(this.inspectBtn);
+    this.explodeBtn = button("explode", "EXPLODIR", C.neutral, () => actions.explodeToggle(), 360, 34);
+    sec.addControl(this.explodeBtn);
+    col.addControl(sec);
 
-    // Vista explodida: botão animado + slider manual.
-    const r3 = row("r3", 120);
-    this.explodeBtn = button("explode", "EXPLODIR", "#4b3a8f", () => actions.explodeToggle(), 320);
-    r3.addControl(this.explodeBtn);
-    this.explodeSlider = new Slider("explodeSlider");
-    this.explodeSlider.minimum = 0;
-    this.explodeSlider.maximum = 1;
-    this.explodeSlider.value = 0;
-    this.explodeSlider.height = "70px";
-    this.explodeSlider.width = "620px";
-    this.explodeSlider.paddingLeft = "20px";
-    this.explodeSlider.color = "#9b87f5";
-    this.explodeSlider.background = "#3a424a";
-    this.explodeSlider.thumbWidth = "56px";
-    this.explodeSlider.isThumbCircle = true;
+    // Vista explodida (ajuste fino).
+    const ex = new StackPanel("ex");
+    ex.isVertical = false;
+    ex.height = "80px";
+    ex.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
+    const exLabel = text("exLabel", "VISTA EXPLODIDA", 28, C.muted, FONT);
+    exLabel.width = "290px";
+    exLabel.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
+    ex.addControl(exLabel);
+    this.explodeSlider = slider("explodeSlider", 0, 1, 590);
     this.explodeSlider.onValueChangedObservable.add((v) => {
       if (!this.syncingExplode) actions.explodeSet(v);
     });
-    r3.addControl(this.explodeSlider);
-    col.addControl(r3);
+    ex.addControl(this.explodeSlider);
+    col.addControl(ex);
 
     drill.onChange((s) => this.renderState(s));
     this.renderState(drill.state);
@@ -164,7 +223,7 @@ export class VRPanel {
     }
   }
 
-  /** Atualização do RPM (chamada com taxa limitada: redesenhar a textura custa caro no Quest). */
+  /** Atualização do RPM (taxa limitada: redesenhar a textura custa caro no Quest). */
   tick(currentRPM: number): void {
     const t = `${Math.round(currentRPM)} RPM`;
     if (t !== this.lastRpmText) {
@@ -174,11 +233,15 @@ export class VRPanel {
   }
 
   private renderState(s: DrillState): void {
-    this.led.background = s.power ? "#2ecc71" : "#5a1a1c";
-    this.powerText.text = s.power ? "LIGADA" : "DESLIGADA";
-    this.powerText.color = s.power ? "#2ecc71" : "#ff8a8d";
-    this.dirText.text = s.direction === 1 ? "↻ HORÁRIO" : "↺ ANTI-HORÁRIO";
-    this.setpointText.text = `Velocidade selecionada: ${s.setpointRPM} RPM`;
+    this.led.background = s.power ? C.success : C.danger;
+    this.powerText.text = s.power ? "▶ EM OPERAÇÃO" : "■ DESLIGADA";
+    this.powerText.color = s.power ? C.success : "#ff8b8c";
+    this.dirText.text = s.direction === 1 ? "↻ Horário" : "↺ Anti-horário";
+    this.setpointText.text = `Selecionada: ${s.setpointRPM} RPM`;
+    if (this.powerBtn.textBlock) this.powerBtn.textBlock.text = s.power ? "DESLIGAR" : "LIGAR";
+    this.powerBtn.background = s.power ? "#3a1c1e" : C.successBg;
+    this.powerBtn.color = s.power ? "#ff8b8c" : "white";
+    this.powerBtn.thickness = s.power ? 4 : 0;
     if (this.slider.value !== s.setpointRPM) {
       this.syncingSlider = true;
       this.slider.value = s.setpointRPM;
@@ -187,37 +250,58 @@ export class VRPanel {
   }
 }
 
-function row(name: string, heightPx: number): StackPanel {
-  const r = new StackPanel(name);
-  r.isVertical = false;
-  r.height = `${heightPx}px`;
-  r.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
+function spacer(h: number): Rectangle {
+  const r = new Rectangle();
+  r.height = `${h}px`;
+  r.thickness = 0;
   return r;
 }
 
-function text(name: string, value: string, size: number, color: string, widthPx: number): TextBlock {
+function text(name: string, value: string, size: number, color: string, family: string): TextBlock {
   const t = new TextBlock(name, value);
   t.fontSize = size;
   t.color = color;
   t.fontWeight = "bold";
-  t.fontFamily = "Consolas, monospace";
-  t.width = `${widthPx}px`;
-  t.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
+  t.fontFamily = family;
   return t;
 }
 
-function button(name: string, label: string, color: string, onClick: () => void, widthPx = 280): Button {
+function slider(name: string, min: number, max: number, widthPx: number): Slider {
+  const s = new Slider(name);
+  s.minimum = min;
+  s.maximum = max;
+  s.value = min;
+  s.height = "70px";
+  s.width = `${widthPx}px`;
+  s.paddingLeft = "24px";
+  s.paddingRight = "24px";
+  s.color = C.accent;
+  s.background = C.neutral;
+  s.borderColor = C.border;
+  s.thumbColor = "#f4f6f8";
+  s.thumbWidth = "60px";
+  s.isThumbCircle = true;
+  return s;
+}
+
+function button(name: string, label: string, color: string, onClick: () => void, widthPx: number, fontSize: number): Button {
   const b = Button.CreateSimpleButton(name, label);
   b.width = `${widthPx}px`;
-  b.height = "100px";
-  b.paddingLeft = "8px";
-  b.paddingRight = "8px";
+  b.height = "104px";
+  b.paddingLeft = "10px";
+  b.paddingRight = "10px";
   b.color = "white";
   b.background = color;
-  b.cornerRadius = 14;
+  b.cornerRadius = 16;
   b.thickness = 0;
-  b.fontSize = 38;
+  b.fontSize = fontSize;
   b.fontWeight = "bold";
+  b.fontFamily = FONT;
+  // Feedback visual de toque com o raio do controle.
+  b.pointerEnterAnimation = () => (b.alpha = 0.85);
+  b.pointerOutAnimation = () => (b.alpha = 1);
+  b.pointerDownAnimation = () => (b.scaleX = b.scaleY = 0.96);
+  b.pointerUpAnimation = () => (b.scaleX = b.scaleY = 1);
   b.onPointerUpObservable.add(() => onClick());
   return b;
 }

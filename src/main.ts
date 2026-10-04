@@ -1,24 +1,16 @@
 import "./style.css";
-import {
-  type AbstractMesh,
-  Color3,
-  Engine,
-  HighlightLayer,
-  type Material,
-  Mesh,
-  type Node,
-  PointerEventTypes,
-  RenderTargetTexture,
-  Vector3,
-} from "@babylonjs/core";
-import { DRILL, EXPLODE, HAND_DRIVE, MODEL, SCENE, VISUAL, WEBSOCKET, type XRAction } from "./config";
+import { type AbstractMesh, Engine, type Material, Matrix, type Node, RenderTargetTexture, Vector3 } from "@babylonjs/core";
+import { ComponentInspector } from "./components";
+import { CAMERA_VIEW, DRILL, EXPLODE, HAND_DRIVE, MODEL, SCENE, VISUAL, WEBSOCKET, type XRAction } from "./config";
+import { enhanceMaterials } from "./materials";
+import { TrainingModule } from "./training";
 import { HandDrive } from "./handDrive";
 import { DrillController } from "./drillController";
 import { ExplodedView } from "./explodedView";
 import { MandrelAnimation, VibrationEffect } from "./mandrelAnimation";
-import { findCandidates, type LoadedModel, loadModel, printHierarchy } from "./modelLoader";
+import { findCandidates, type LoadedModel, loadModel, printHierarchy, worldBoundsOf } from "./modelLoader";
 import { DrillPlacement } from "./placement";
-import { createScene } from "./scene";
+import { addContactShadow, createScene, setupDesktopPostProcess } from "./scene";
 import { ControlPanelUI } from "./ui";
 import { VRPanel } from "./vrPanel";
 import { checkVRSupport, setupXR, type XRActionContext, type XRSetup } from "./webxr";
@@ -51,7 +43,10 @@ async function main(): Promise<void> {
   let xrSetup: XRSetup | null = null;
   let inXR = false;
   let triggerHeld = false;
-  let highlight: HighlightLayer | null = null;
+  let inspector: ComponentInspector | null = null;
+  let ssaoPipeline: import("@babylonjs/core").SSAO2RenderingPipeline | null = null;
+  // Desempenho: se o desktop não sustentar ~30 FPS com SSAO, ele é desligado.
+  const perf = { frames: 0, time: 0, checked: false };
   // Câmera desktop: visão geral (definida após carregar) e foco no mandril.
   let homeView: { target: Vector3; radius: number } | null = null;
   let focused = false;
@@ -64,6 +59,9 @@ async function main(): Promise<void> {
   const ctx = createScene(engine, canvas);
   const { scene, camera } = ctx;
   camera.inputs.removeByType("ArcRotateCameraKeyboardMoveInput"); // setas = RPM
+  // Vista 3/4 padrão do equipamento.
+  const HOME_ALPHA = -Math.PI / 2 + (CAMERA_VIEW.yawDeg * Math.PI) / 180;
+  const HOME_BETA = (CAMERA_VIEW.pitchDeg * Math.PI) / 180;
 
   // URL do ESP32: ?ws=… > última usada neste navegador > padrão ("auto" = ponte /esp32).
   const wsParam = new URLSearchParams(location.search).get("ws");
@@ -89,9 +87,19 @@ async function main(): Promise<void> {
       onReset: () => fullReset(),
       onExplodeToggle: () => toggleExplode(),
       onExplodeSet: (f) => explode?.setFactor(f),
+      onHome: () => goHome(),
+      onInspectToggle: (on) => {
+        if (!inspector) return;
+        inspector.enabled = on;
+        if (!on) inspector.clear();
+      },
+      onTrainPrimary: () => training.primary(),
+      onTrainStop: () => training.stop(),
     },
     wsUrl,
   );
+  const training = new TrainingModule(ui.trainingView);
+  ui.setSystemState("loading", "Carregando");
   link = new Esp32Link(drill, (s, d) => ui.setWsStatus(s, d));
   if (wsAutoConnect) link.connect(wsUrl);
 
@@ -113,16 +121,30 @@ async function main(): Promise<void> {
   canvas.addEventListener("pointerdown", () => requestRender(5));
   canvas.addEventListener("pointermove", (e) => e.buttons && requestRender(5));
   canvas.addEventListener("wheel", () => requestRender(5), { passive: true });
-  window.addEventListener("resize", () => {
+  // O canvas ocupa a célula da viewport (muda ao recolher o painel): redimensiona junto.
+  new ResizeObserver(() => {
     engine.resize();
     requestRender(3);
-  });
+  }).observe(canvas);
   drill.onChange(() => requestRender(3));
 
+  // Treinamento: observa eventos da máquina (não comanda nada).
+  let prevState = drill.state;
+  drill.onChange((s) => {
+    if (s.setpointRPM !== prevState.setpointRPM) training.notify({ type: "setpoint", rpm: s.setpointRPM });
+    if (s.power !== prevState.power) training.notify({ type: "power", on: s.power });
+    if (s.direction !== prevState.direction) training.notify({ type: "direction" });
+    prevState = s;
+  });
+
   // ---- Transição suave da câmera (botão FOCAR MANDRIL) ---------------------
-  let tween: { from: Vector3; to: Vector3; r0: number; r1: number; t: number } | null = null;
-  const animateCamera = (to: Vector3, radius: number): void => {
-    tween = { from: camera.target.clone(), to: to.clone(), r0: camera.radius, r1: radius, t: 0 };
+  type Tween = { from: Vector3; to: Vector3; r0: number; r1: number; a0: number; a1: number; b0: number; b1: number; t: number };
+  let tween: Tween | null = null;
+  const animateCamera = (to: Vector3, radius: number, alpha = camera.alpha, beta = camera.beta): void => {
+    // Menor caminho angular (evita dar a volta completa ao centralizar).
+    const a0 = camera.alpha;
+    const da = Math.atan2(Math.sin(alpha - a0), Math.cos(alpha - a0));
+    tween = { from: camera.target.clone(), to: to.clone(), r0: camera.radius, r1: radius, a0, a1: a0 + da, b0: camera.beta, b1: beta, t: 0 };
   };
 
   let last = performance.now();
@@ -151,8 +173,11 @@ async function main(): Promise<void> {
       const s = tween.t * tween.t * (3 - 2 * tween.t);
       Vector3.LerpToRef(tween.from, tween.to, s, camera.target);
       camera.radius = tween.r0 + (tween.r1 - tween.r0) * s;
+      camera.alpha = tween.a0 + (tween.a1 - tween.a0) * s;
+      camera.beta = tween.b0 + (tween.b1 - tween.b0) * s;
       if (tween.t >= 1) tween = null;
     }
+    clampCameraTarget();
 
     uiAccum += dt;
     if (uiAccum >= 1 / VISUAL.uiRefreshHz) {
@@ -168,13 +193,16 @@ async function main(): Promise<void> {
     if (busy || renderBudget > 0) {
       scene.render();
       if (renderBudget > 0) renderBudget--;
+      if (busy && !inXR && ssaoPipeline && !perf.checked) watchPerformance(dt * 1000);
     }
   });
 
   // ===================== B. Modelo GLB ======================================
   try {
     ui.setStatus("Carregando modelo 3D…");
+    ui.setLoadingMessage("Carregando modelo 3D…");
     model = await loadModel(scene, MODEL.url, (f) => ui.setLoadingProgress(f));
+    ui.setLoadingMessage("Preparando materiais e iluminação…");
     scene.activeCamera = camera;
     printHierarchy(model.root);
 
@@ -196,15 +224,18 @@ async function main(): Promise<void> {
       if (report.missing.length) console.warn("[mandril] Nós opcionais não encontrados:", report.missing);
       console.info("[mandril] Grupos animados:", report.groups.join(", "));
       ui.setStatus(
-        HAND_DRIVE.enabled
-          ? "Pronto · arraste a MANIVELA para girar à mão · arraste o resto para orbitar, role/pinça para zoom"
-          : "Pronto · arraste para girar, role/pinça para zoom, clique numa peça para identificá-la",
+        "Arraste para orbitar · roda ou pinça: zoom · botão direito: deslocar · clique numa peça para identificá-la" +
+          (HAND_DRIVE.enabled ? " · arraste a manivela para girar à mão" : ""),
       );
     }
     vibration = new VibrationEffect(placement.vibrationNode);
 
     // Sombras: apenas o modelo projeta sombra na bancada.
     if (ctx.shadows) for (const m of [...model.meshes, ...anim.bitMeshes]) ctx.shadows.addShadowCaster(m, false);
+
+    // Apresentação dos materiais (antes de congelar). Geometria intocada.
+    if (VISUAL.enhanceMaterials) enhanceMaterials(model, scene);
+    for (const m of anim.bitMeshes) m.isPickable = true; // a broca também é identificável
 
     // Materiais do GLB congelados após carregarem (menos trabalho por quadro).
     const glbMaterials = new Set(model.meshes.map((m) => m.material).filter((m): m is Material => m !== null));
@@ -213,10 +244,18 @@ async function main(): Promise<void> {
     // Enquadramento a partir do tamanho real do modelo.
     const size = placement.size;
     const maxDim = Math.max(size.x, size.y, size.z);
-    camera.target.copyFrom(placement.placementNode.position);
-    camera.radius = maxDim * 2.1;
-    camera.lowerRadiusLimit = maxDim * 0.15;
-    homeView = { target: camera.target.clone(), radius: camera.radius };
+    homeView = { target: placement.placementNode.position.clone(), radius: fitRadius() };
+    camera.target.copyFrom(homeView.target);
+    camera.alpha = HOME_ALPHA;
+    camera.beta = HOME_BETA;
+    camera.radius = homeView.radius;
+    // Zoom limitado: nem dentro das peças, nem a ponto de perder o equipamento.
+    camera.lowerRadiusLimit = Math.max(0.12, homeView.radius * CAMERA_VIEW.minZoom);
+    camera.upperRadiusLimit = homeView.radius * CAMERA_VIEW.maxZoom;
+
+    // Apoio visual na bancada + pós-processamento do desktop.
+    addContactShadow(scene, placement.placementNode.position, size.x, size.z, ctx.tableTopY);
+    ssaoPipeline = setupDesktopPostProcess(scene, camera, maxDim);
 
     // Painel 3D (aparece só dentro do VR), à direita da furadeira, sobre a bancada.
     vrPanel = new VRPanel(scene, drill, {
@@ -233,6 +272,8 @@ async function main(): Promise<void> {
       explode.onChange((f) => {
         ui.setExplode(f);
         vrPanel?.setExplode(f);
+        if (VISUAL.explodeLabels && !inXR) inspector?.setLabelsVisible(f > 0.6);
+        training.notify({ type: "explode", factor: f });
         requestRender(2);
       });
       ui.setExplodeAvailable(true);
@@ -243,7 +284,10 @@ async function main(): Promise<void> {
       handDrive = new HandDrive(scene, anim, drill);
       handDrive.enablePointer(camera, canvas, () => !inXR);
       handDrive.onGrabChange((grabbing) => {
-        if (grabbing) highlight?.removeAllMeshes();
+        if (grabbing) {
+          ui.hideTooltip();
+          training.notify({ type: "handDrive" });
+        }
         requestRender(3);
       });
       // Ligar o motor tira a peça da mão.
@@ -252,13 +296,23 @@ async function main(): Promise<void> {
       });
     }
 
-    if (VISUAL.debugPick) enableDebugPick();
+    setupInspector(anim.bitMeshes);
+    camera.onViewMatrixChangedObservable.add(() => {
+      if (!tween) training.notify({ type: "camera" });
+    });
     ui.setFocusAvailable(report.ok);
+
+    // Remove o carregamento só com materiais/texturas prontos (limite de 10 s).
+    await Promise.race([scene.whenReadyAsync(), new Promise((r) => setTimeout(r, 10000))]);
+    ui.setLoadingProgress(1);
     ui.hideLoading();
+    ui.setSystemState("ready", "Sistema pronto");
+    if (VISUAL.splash) ui.showSplash();
     requestRender(10);
   } catch (err) {
     console.error(err);
     ui.hideLoading();
+    ui.setSystemState("error", "Falha no carregamento");
     ui.setStatus(
       `Não foi possível carregar ${MODEL.url}: ${(err as Error)?.message ?? err}. ` +
         "Verifique se o arquivo está em public/models/.",
@@ -320,7 +374,9 @@ async function main(): Promise<void> {
     vrPanel?.setEnabled(entered);
     // No VR o raio dos controles só precisa atingir o painel e o piso.
     model?.meshes.forEach((m) => (m.isPickable = !entered));
-    highlight?.removeAllMeshes();
+    inspector?.clear();
+    inspector?.setLabelsVisible(!entered && (explode?.factor ?? 0) > 0.6);
+    ui.setXRActive(entered);
     // Sombras: estáticas no VR (economia de GPU no Quest), dinâmicas no desktop.
     const map = ctx.shadows?.getShadowMap();
     if (map) {
@@ -342,13 +398,67 @@ async function main(): Promise<void> {
     if (!focused) {
       const c = anim.chuckWorldCenter();
       if (!c) return false;
-      animateCamera(c, 0.2);
+      animateCamera(c, Math.max(camera.lowerRadiusLimit ?? 0.12, homeView.radius * 0.38));
       focused = true;
     } else {
-      animateCamera(placement!.placementNode.position, homeView.radius);
+      animateCamera(placement!.placementNode.position, homeRadius());
       focused = false;
     }
     return focused;
+  }
+
+  /** Distância que faz o equipamento ocupar CAMERA_VIEW.fill da viewport. */
+  function fitRadius(): number {
+    // Projeta os 8 cantos da caixa do equipamento na vista 3/4 e ajusta a
+    // distância até ocuparem CAMERA_VIEW.fill da viewport (horizontal e vertical).
+    const box = placement ? worldBoundsOf([placement.vibrationNode]) : null;
+    if (!box) return 0.8;
+    const center = box.min.add(box.max).scale(0.5);
+    const corners: Vector3[] = [];
+    for (const x of [box.min.x, box.max.x])
+      for (const y of [box.min.y, box.max.y])
+        for (const z of [box.min.z, box.max.z]) corners.push(new Vector3(x, y, z));
+    const aspect = engine.getAspectRatio(camera) || 1.6;
+    const proj = Matrix.PerspectiveFovLH(camera.fov, aspect, camera.minZ, camera.maxZ);
+    let r = box.max.subtract(box.min).length() * 1.5;
+    for (let i = 0; i < 6; i++) {
+      const eye = center.add(
+        new Vector3(Math.cos(HOME_ALPHA) * Math.sin(HOME_BETA), Math.cos(HOME_BETA), Math.sin(HOME_ALPHA) * Math.sin(HOME_BETA)).scale(r),
+      );
+      const vp = Matrix.LookAtLH(eye, center, Vector3.Up()).multiply(proj);
+      let mx = 0;
+      let my = 0;
+      for (const c of corners) {
+        const p = Vector3.TransformCoordinates(c, vp);
+        mx = Math.max(mx, Math.abs(p.x));
+        my = Math.max(my, Math.abs(p.y));
+      }
+      r *= Math.max(mx / CAMERA_VIEW.fill, my / (CAMERA_VIEW.fill * 0.9));
+    }
+    return r;
+  }
+
+  function homeRadius(): number {
+    return (explode?.factor ?? 0) > 0.5 ? fitRadius() * 1.5 : fitRadius();
+  }
+
+  /** ⌂ Centralizar: volta à vista 3/4 com o equipamento enquadrado. */
+  function goHome(): void {
+    if (!placement || inXR) return;
+    focused = false;
+    ui.setFocused(false);
+    if (placement.isInspecting) placement.goHome();
+    animateCamera(placement.placementNode.position, homeRadius(), HOME_ALPHA, HOME_BETA);
+    requestRender(5);
+  }
+
+  /** Impede que o deslocamento (pan) leve o equipamento para fora da tela. */
+  function clampCameraTarget(): void {
+    if (!homeView || !placement || inXR) return;
+    const max = Math.max(placement.size.x, 0.2) * 0.9;
+    const d = camera.target.subtract(placement.placementNode.position);
+    const len = d.length();
+    if (len > max) camera.target.copyFrom(placement.placementNode.position.add(d.scale(max / len)));
   }
 
   function toggleInspect(): void {
@@ -372,7 +482,7 @@ async function main(): Promise<void> {
     const exploding = explode.factor <= 0.5;
     explode.toggle();
     if (!inXR && !focused && homeView) {
-      animateCamera(placement!.placementNode.position, homeView.radius * (exploding ? 1.6 : 1));
+      animateCamera(placement!.placementNode.position, fitRadius() * (exploding ? 1.5 : 1));
     }
   }
 
@@ -382,8 +492,25 @@ async function main(): Promise<void> {
     placement?.resetPose();
     explode?.animateTo(0);
     vrPanel?.setInspecting(false);
-    if (focused) toggleFocus();
+    if (focused) {
+      toggleFocus();
+      ui.setFocused(false);
+    }
     requestRender(5);
+  }
+
+  /** Mede o FPS durante animações; com média < 28 FPS desliga o SSAO (uma vez). */
+  function watchPerformance(frameMs: number): void {
+    perf.frames++;
+    perf.time += frameMs;
+    if (perf.time < 4000) return;
+    const fps = (perf.frames * 1000) / perf.time;
+    perf.checked = true;
+    if (fps >= 28 || !ssaoPipeline) return;
+    scene.postProcessRenderPipelineManager.detachCamerasFromRenderPipeline(ssaoPipeline.name, camera);
+    ssaoPipeline = null;
+    console.info(`[desempenho] ${fps.toFixed(0)} FPS com SSAO: oclusão de ambiente desligada.`);
+    ui.toast("Qualidade gráfica ajustada para manter a fluidez", "info");
   }
 
   /** Ações dos controles do Quest (mapeadas em XR_BINDINGS, config.ts). */
@@ -443,29 +570,33 @@ async function main(): Promise<void> {
     }
   }
 
-  // ---- Identificação de peças (desktop): clique → nome + cadeia de pais ----
-  function highlightMeshes(meshes: AbstractMesh[]): void {
-    highlight ??= new HighlightLayer("destaque", scene);
-    highlight.removeAllMeshes();
-    for (const m of meshes) if (m instanceof Mesh) highlight.addMesh(m, Color3.Yellow());
-    requestRender(5);
-  }
-
-  function enableDebugPick(): void {
-    scene.onPointerObservable.add((pi) => {
-      if (pi.type !== PointerEventTypes.POINTERTAP || inXR) return;
-      const mesh = pi.pickInfo?.pickedMesh;
-      if (!mesh || !model?.meshes.includes(mesh)) {
-        highlight?.removeAllMeshes();
-        requestRender(2);
-        return;
-      }
-      const chain: string[] = [];
-      for (let n: Node | null = mesh; n; n = n.parent) chain.push(n.name);
-      console.log(`%c[peça] ${chain[0]}`, "font-weight:bold;color:#f5a623", "\n  caminho: " + chain.join("  ←  "));
-      ui.setStatus(`Peça: ${chain.find((n) => !/_primitive\d+$/.test(n)) ?? chain[0]}`);
-      highlightMeshes([mesh]);
+  // ---- Identificação de componentes (desktop): hover + clique ------------
+  function setupInspector(extra: AbstractMesh[]): void {
+    if (!model) return;
+    inspector = new ComponentInspector(
+      scene,
+      model,
+      extra,
+      () => !inXR && !handDrive?.isGrabbing,
+      () => requestRender(3),
+    );
+    inspector.onHover((hit, x, y) => {
+      if (handDrive?.isGrabbing) return;
+      const turnable = !!hit && HAND_DRIVE.enabled && !!anim?.groupIdOfNode(hit.meshes[0] ?? null);
+      canvas.style.cursor = hit ? (turnable ? "grab" : "pointer") : "";
+      ui.setTooltip(hit, x, y, turnable ? "Arraste para girar à mão" : "");
     });
+    inspector.onSelect((hit) => {
+      ui.showComponent(hit);
+      if (!hit) return;
+      training.notify({ type: "component", id: hit.info.id });
+      if (VISUAL.debugPick) {
+        const chain: string[] = [];
+        for (let n: Node | null = hit.meshes[0] ?? null; n; n = n.parent) chain.push(n.name);
+        console.log(`%c[peça] ${hit.info.name} — ${hit.partName}`, "font-weight:bold;color:#f2a33a", "\n  caminho: " + chain.join("  ←  "));
+      }
+    });
+    canvas.addEventListener("pointerleave", () => ui.hideTooltip());
   }
 
   /** Helpers no console do navegador: `drill.<função>(...)`. */
@@ -484,8 +615,9 @@ async function main(): Promise<void> {
       highlight: (name: string) => {
         const n = model?.nodesByName.get(name);
         if (!n) return console.warn("Nó não encontrado:", name);
-        highlightMeshes([...(n instanceof Mesh ? [n] : []), ...n.getChildMeshes(false)]);
+        inspector?.highlightNode(n);
       },
+      training,
       explode: (f?: number) => (f === undefined ? toggleExplode() : explode?.animateTo(f)),
       setModelRotationDeg: (x = 0, y = 0, z = 0) => {
         placement?.applyOrientation(x, y, z);
