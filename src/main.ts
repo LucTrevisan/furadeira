@@ -53,6 +53,7 @@ async function main(): Promise<void> {
   let inXR = false;
   let triggerHeld = false;
   let inspector: ComponentInspector | null = null;
+  let pendingExplode: boolean | null = null;
   let ssaoPipeline: import("@babylonjs/core").SSAO2RenderingPipeline | null = null;
   // Desempenho: se o desktop não sustentar ~30 FPS com SSAO, ele é desligado.
   const perf = { frames: 0, time: 0, checked: false, step: 0 };
@@ -335,6 +336,10 @@ async function main(): Promise<void> {
         requestRender(2);
       });
       ui.setExplodeAvailable(true);
+      if (pendingExplode !== null) {
+        explodeTo(pendingExplode);
+        pendingExplode = null;
+      }
     }
 
     // Girar à mão (manivela, engrenagens, mandril).
@@ -542,7 +547,11 @@ async function main(): Promise<void> {
 
   /** Explode (true) ou monta (false) — botões, teclado, VR e HC-SR04. */
   function explodeTo(exploded: boolean): void {
-    if (!explode?.isReady) return;
+    if (!explode?.isReady) {
+      // Pedido (ex.: HC-SR04) antes do modelo terminar de carregar: aplica depois.
+      pendingExplode = exploded;
+      return;
+    }
     explode.animateTo(exploded ? 1 : 0);
     if (!inXR && !focused && homeView) {
       animateCamera(placement!.placementNode.position, fitRadius() * (exploded ? 1.5 : 1));

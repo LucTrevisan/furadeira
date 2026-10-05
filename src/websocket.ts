@@ -324,7 +324,8 @@ export function toTarget(s: LinkSettings): LinkTarget {
     : { kind: "websocket", url: resolveWsUrl(s.wsUrl.trim()) };
 }
 
-const PREF_KEY = "furadeira.iot";
+// v2: a escolha salva antes (MQTT por padrão) é ignorada; vale o padrão atual.
+const PREF_KEY = "furadeira.iot.v2";
 const OLD_PREF_KEY = "furadeira.websocket";
 const PASS_KEY = "furadeira.iot.pass";
 
@@ -373,7 +374,7 @@ export function loadLinkPrefs(): { settings: LinkSettings; connect?: boolean } {
     settings.transport = "mqtt";
     settings.mqttTopic = q.get("mqtt")!;
   }
-  const connect = typeof p.connect === "boolean" ? p.connect : typeof old.connect === "boolean" ? old.connect : undefined;
+  const connect = typeof p.connect === "boolean" ? p.connect : undefined; // "desconectar" salvo em versões antigas não vale mais
   return { settings, connect: q.has("ws") || q.has("mqtt") ? true : connect };
 }
 

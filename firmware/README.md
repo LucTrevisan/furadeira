@@ -8,7 +8,26 @@ funcionando exatamente igual sem o hardware (MODO NORMAL). Com o ESP32
 conectado (MODO IoT), os sensores alimentam as funções que já existem:
 
 | Dispositivo | Faz | Na aplicação usa |
-|---|---|---|
+|## ▶ Modo APRESENTAÇÃO (padrão atual): WebSocket local
+
+ESP32 e notebook na **mesma rede** (ex.: `WIFI_IOT_CFP601`). O MQTT está
+desligado no firmware (`MQTT_ENABLED 0`) para não travar a placa tentando um
+broker.
+
+1. Grave `firmware/furadeira_esp32/furadeira_esp32.ino` (o `secrets.h` desta
+   pasta já tem a rede). Pode alimentar por **power bank no USB-C**.
+2. Anote o IP que o **LCD** mostra ("ESP32 ONLINE IP").
+3. No notebook (mesma rede): `.env.local` na raiz do projeto com
+   `ESP32_HOST=<ip do LCD>` e `ESP32_PORT=81`; depois `npm run dev`.
+4. Abra **http://localhost:5173** → conecta sozinho: selo verde
+   **"ESP32 conectado · WebSocket"**.
+5. **Encoder** → muda a rotação. **Mão a menos de 30 mm** do HC-SR04 → vista
+   explodida; afastar para **50 mm ou mais** → monta.
+
+Para voltar ao MQTT: `MQTT_ENABLED 1` no sketch e, na página, Conexão ESP32 →
+Configurar conexão → MQTT.
+
+---|---|---|
 | KY-040 (girar) | RPM 0–3000, 50 por clique | `DrillController.applyRemote({rpm})`: o mesmo setpoint do slider |
 | KY-040 (clique / clique longo) | liga-desliga / inverte | `applyRemote({power})` / `applyRemote({direction})` |
 | MPU6050 | vibração real | microvibração no `VibrationEffect` existente + indicador NORMAL/ATENÇÃO/ALTA |

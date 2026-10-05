@@ -9,10 +9,11 @@
    Periféricos e função de cada um:
      KY-040   → RPM (gira) · liga/desliga (clique) · inverte (clique longo)
      MPU6050  → vibração real (I2C)          → microvibração no gêmeo digital
-     HC-SR04  → proximidade da mão           → vista explodida (≤3 cm) / monta (≥5 cm)
+     HC-SR04  → proximidade da mão           → vista explodida (< 30 mm) / monta (≥ 50 mm)
      LCD 16x2 I2C (PCF8574)                  ← feedback de status e interações
 
-   COMUNICAÇÃO (as duas ao mesmo tempo; a página usa a que estiver configurada):
+   COMUNICAÇÃO — APRESENTAÇÃO: WebSocket local (MQTT_ENABLED 0).
+   Disponíveis (a página usa a que estiver configurada):
      • MQTT     — via broker (rede IoT da escola, internet, GitHub Pages)
                   tópicos <MQTT_TOPIC>/up (placa→app), /down (app→placa),
                   /online ("1"/"0", retido; "0" é o last will se a placa cair)
@@ -98,7 +99,10 @@ const uint32_t WIFI_TIMEOUT_MS = 15000;
 // — a aplicação web precisa usar o MESMO tópico. Em broker público qualquer um
 // que saiba o tópico pode publicar: para uso contínuo prefira um broker
 // privado e defina MQTT_USER / MQTT_PASS no secrets.h.
-#define MQTT_ENABLED 1
+// APRESENTAÇÃO: comunicação só por WebSocket local (mesma rede). Com o MQTT
+// ligado, cada tentativa de conexão ao broker trava a placa por alguns
+// segundos — prejudica encoder, LCD e WebSocket. 1 = religa o MQTT.
+#define MQTT_ENABLED 0
 const char* MQTT_HOST = "public.cloud.shiftr.io";
 const uint16_t MQTT_PORT = 8883;  // 8883 = TLS · 1883 = sem criptografia
 #define MQTT_TLS 1                // 1 = TLS (sem validar o certificado: criptografa, mas não autentica o broker)
@@ -154,8 +158,8 @@ const uint16_t MPU_CALIB_SAMPLES = 150;
 // ---- HC-SR04 / proximidade ----
 const uint32_t US_PERIOD_MS = 100;       // 10 Hz
 const uint32_t US_TIMEOUT_US = 30000;    // > ~5 m: sem objeto
-const float US_EXPLODE_CM = 3.0f;        // ≤ → vista explodida
-const float US_ASSEMBLE_CM = 5.0f;       // ≥ → monta (entre 3 e 5: mantém)
+const float US_EXPLODE_CM = 3.0f;        // < 3,0 cm (30 mm) → vista explodida
+const float US_ASSEMBLE_CM = 5.0f;       // ≥ 5,0 cm → monta (entre 3 e 5: mantém)
 const uint8_t US_CONFIRM_READS = 3;      // leituras consecutivas para confirmar
 const float US_SHOW_CM = 15.0f;          // abaixo disso o LCD mostra a distância
 const float US_MIN_VALID_CM = 1.5f;
@@ -804,7 +808,7 @@ void readUltrasonic() {
 
   // 3) Histerese + leituras consecutivas: ≤3 cm explode, ≥5 cm monta.
   if (usOnline) {
-    bool nearNow = distanceCm > 0 && distanceCm <= US_EXPLODE_CM;
+    bool nearNow = distanceCm > 0 && distanceCm < US_EXPLODE_CM;  // menor que 30 mm
     bool farNow = distanceCm < 0 || distanceCm >= US_ASSEMBLE_CM;
     nearCount = nearNow ? nearCount + 1 : 0;
     farCount = farNow ? farCount + 1 : 0;

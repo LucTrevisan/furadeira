@@ -347,7 +347,8 @@ export const WEBSOCKET = {
    * ou "websocket" (ponte /esp32 do "npm run dev"). Pode ser trocada na
    * interface (IoT / Hardware); a escolha fica salva no navegador.
    */
-  transport: "mqtt" as "mqtt" | "websocket",
+  // APRESENTAÇÃO: WebSocket local (ESP32 e notebook na mesma rede, "npm run dev").
+  transport: "websocket" as "mqtt" | "websocket",
 };
 
 /**

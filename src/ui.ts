@@ -389,6 +389,7 @@ export class ControlPanelUI {
     const mqtt = $<HTMLSelectElement>("iotTransport").value === "mqtt";
     $("cfgMqtt").hidden = !mqtt;
     $("cfgWs").hidden = mqtt;
+    $("iotVia").textContent = mqtt ? "MQTT · tópico do firmware" : "WebSocket local · npm run dev";
   }
 
   private lastVibLevel: IoTTelemetry["vibrationLevel"] = "normal";

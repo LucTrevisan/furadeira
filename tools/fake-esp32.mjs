@@ -180,12 +180,12 @@ setInterval(() => {
   // Mão: aproxima de 20 cm até 2 cm em ~2 s (e volta).
   sim.handT = Math.max(0, Math.min(1, sim.handT + (sim.hand ? 0.025 : -0.025)));
   sim.distance = sim.handT > 0 ? +(20 - 18 * sim.handT).toFixed(1) : null;
-  // Mesma regra do firmware: ≤3 cm (3 leituras) explode; ≥5 cm monta.
-  near = sim.distance !== null && sim.distance <= 3 ? near + 1 : 0;
+  // Mesma regra do firmware: < 3 cm (30 mm, 3 leituras) explode; ≥ 5 cm monta.
+  near = sim.distance !== null && sim.distance < 3 ? near + 1 : 0;
   far = sim.distance === null || sim.distance >= 5 ? far + 1 : 0;
   if (!exploded && near >= 3) {
     exploded = true;
-    log("[HC-SR04] ≤ 3 cm → explode");
+    log("[HC-SR04] < 30 mm → explode");
     broadcastObj({ type: "event", event: "explode" });
   } else if (exploded && far >= 3) {
     exploded = false;
