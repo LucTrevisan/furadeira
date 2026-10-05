@@ -1,5 +1,30 @@
-import { defineConfig, loadEnv, type ProxyOptions } from "vite";
+import { execSync } from "node:child_process";
+import { defineConfig, loadEnv, type Plugin, type ProxyOptions } from "vite";
 import basicSsl from "@vitejs/plugin-basic-ssl";
+
+// Versão do build: commit (GitHub Actions informa GITHUB_SHA) + horário.
+// Vai embutida no código E num version.json servido ao lado do site, que a
+// página consulta sem cache para saber se existe versão mais nova publicada.
+function buildVersion(): { commit: string; time: string } {
+  let commit = (process.env.GITHUB_SHA ?? "").slice(0, 7);
+  if (!commit) {
+    try {
+      commit = execSync("git rev-parse --short HEAD").toString().trim();
+    } catch {
+      commit = "dev";
+    }
+  }
+  return { commit, time: new Date().toISOString() };
+}
+const VERSION = buildVersion();
+
+const versionFile: Plugin = {
+  name: "version-json",
+  apply: "build",
+  generateBundle() {
+    this.emitFile({ type: "asset", fileName: "version.json", source: JSON.stringify(VERSION) });
+  },
+};
 
 // `npm run dev`        → http://localhost:5173 (desktop / pré-visualização)
 // `npm run dev:https`  → https://<ip-da-maquina>:5173 com certificado autoassinado,
@@ -25,7 +50,8 @@ export default defineConfig(({ mode }) => {
   return {
     // Caminhos relativos: funciona em qualquer subpasta (GitHub Pages, Netlify, etc.)
     base: "./",
-    plugins: mode === "https" ? [basicSsl()] : [],
+    plugins: mode === "https" ? [basicSsl(), versionFile] : [versionFile],
+    define: { __APP_VERSION__: JSON.stringify(VERSION) },
     server: { host: true, port: 5173, proxy },
     preview: { host: true, port: 4173, proxy },
     build: {

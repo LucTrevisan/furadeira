@@ -4,6 +4,7 @@ import { ComponentInspector } from "./components";
 import { CAMERA_VIEW, DRILL, EXPLODE, HAND_DRIVE, IOT, MODEL, SCENE, VISUAL, type XRAction } from "./config";
 import { enhanceMaterials } from "./materials";
 import { TrainingModule } from "./training";
+import { startUpdateCheck, versionLabel } from "./version";
 import { HandDrive } from "./handDrive";
 import { DrillController } from "./drillController";
 import { ExplodedView } from "./explodedView";
@@ -108,6 +109,10 @@ async function main(): Promise<void> {
     linkPrefs.settings,
   );
   const training = new TrainingModule(ui.trainingView);
+  // Versão visível no rodapé + atualização automática quando houver nova publicação.
+  const versionEl = document.getElementById("appVersion");
+  if (versionEl) versionEl.textContent = versionLabel();
+  startUpdateCheck({ canReload: () => !inXR, notify: (msg) => ui.toast(msg, "info", 5000) });
   ui.setSystemState("loading", "Carregando");
   // ---- Camada IoT (ESP32). ADITIVA: sem placa, nada muda (MODO NORMAL). ----
   const iot = {
