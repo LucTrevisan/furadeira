@@ -2,6 +2,7 @@ import type { ComponentHit } from "./components";
 import { DRILL, VISUAL } from "./config";
 import type { DrillController, DrillState } from "./drillController";
 import type { TrainingView } from "./training";
+import type { IoTSensors, IoTTelemetry, LinkSettings } from "./websocket";
 
 export type WsStatus = "disconnected" | "connecting" | "connected" | "error";
 export type ToastKind = "ok" | "info" | "warn" | "err";
@@ -11,7 +12,8 @@ export interface UIHandlers {
   /** Alterna o foco no mandril; retorna true se ficou focado. */
   onFocusToggle: () => boolean;
   onRealSpeedChange: (real: boolean) => void;
-  onWsToggle: (url: string) => void;
+  /** Conectar/desconectar o ESP32 com a configuração do formulário. */
+  onWsToggle: (settings: LinkSettings) => void;
   /** RESET: estado padrão da furadeira + posição original. */
   onReset: () => void;
   /** Vista explodida: alterna montar/explodir (animado). */
@@ -101,7 +103,7 @@ export class ControlPanelUI {
   constructor(
     private readonly drill: DrillController,
     handlers: UIHandlers,
-    initialWsUrl: string,
+    initialLink: LinkSettings,
   ) {
     this.prev = drill.state;
 
@@ -138,8 +140,9 @@ export class ControlPanelUI {
     // ---- Treinamento / ESP32 ----------------------------------------------
     $("btnTrain").addEventListener("click", () => handlers.onTrainPrimary());
     $("btnTrainStop").addEventListener("click", () => handlers.onTrainStop());
-    this.wsUrl.value = initialWsUrl;
-    this.btnWs.addEventListener("click", () => handlers.onWsToggle(this.wsUrl.value.trim()));
+    this.setLinkSettings(initialLink);
+    $<HTMLSelectElement>("iotTransport").addEventListener("change", () => this.showTransportFields());
+    this.btnWs.addEventListener("click", () => handlers.onWsToggle(this.getLinkSettings()));
 
     // ---- Painel recolhível --------------------------------------------------
     $("btnPanel").addEventListener("click", () => this.setPanelOpen(this.app.classList.contains("panel-collapsed")));
@@ -334,13 +337,86 @@ export class ControlPanelUI {
       connected: "conectado",
       error: "erro",
     };
-    this.wsStatus.textContent = labels[status];
+    // MQTT: broker conectado, mas a placa ainda não respondeu.
+    this.wsStatus.textContent = status === "connecting" && detail.includes("aguardando") ? "aguardando ESP32" : labels[status];
     this.wsStatus.title = detail;
     this.wsStatus.className = "badge" + (status === "connected" ? " ok" : status === "error" ? " err" : status === "connecting" ? " wait" : "");
     this.btnWs.textContent = status === "disconnected" || status === "error" ? "Conectar" : "Desconectar";
     if (status === "connected" && this.lastWs !== "connected") this.toast("ESP32 conectado", "ok");
     if (status === "disconnected" && this.lastWs === "connected") this.toast("ESP32 desconectado", "warn");
     this.lastWs = status;
+  }
+
+  // ------------------------------------------------------------- camada IoT
+
+  getLinkSettings(): LinkSettings {
+    const v = (id: string): string => $<HTMLInputElement>(id).value;
+    return {
+      transport: $<HTMLSelectElement>("iotTransport").value === "websocket" ? "websocket" : "mqtt",
+      wsUrl: v("wsUrl").trim(),
+      mqttUrl: v("mqttUrl").trim(),
+      mqttTopic: v("mqttTopic").trim(),
+      mqttUser: v("mqttUser").trim(),
+      mqttPass: v("mqttPass"),
+    };
+  }
+
+  setLinkSettings(s: LinkSettings): void {
+    $<HTMLSelectElement>("iotTransport").value = s.transport;
+    this.wsUrl.value = s.wsUrl;
+    $<HTMLInputElement>("mqttUrl").value = s.mqttUrl;
+    $<HTMLInputElement>("mqttTopic").value = s.mqttTopic;
+    $<HTMLInputElement>("mqttUser").value = s.mqttUser;
+    $<HTMLInputElement>("mqttPass").value = s.mqttPass;
+    this.showTransportFields();
+  }
+
+  private showTransportFields(): void {
+    const mqtt = $<HTMLSelectElement>("iotTransport").value === "mqtt";
+    $("cfgMqtt").hidden = !mqtt;
+    $("cfgWs").hidden = mqtt;
+  }
+
+  private lastVibLevel: IoTTelemetry["vibrationLevel"] = "normal";
+
+  /**
+   * MODO IoT (ESP32 conectado) × MODO NORMAL. Sem ESP32, tudo isto fica
+   * oculto e a interface é exatamente a de antes.
+   */
+  setIoT(connected: boolean, t: IoTTelemetry | null, sensors: IoTSensors | null, device = ""): void {
+    $("iotBadge").hidden = !connected;
+    $("iotRow").hidden = !connected || !t;
+    const mode = $("iotMode");
+    mode.textContent = connected ? `Modo IoT · ${device || "ESP32"} online` : "Modo normal · ESP32 não conectado";
+    mode.classList.toggle("on", connected);
+
+    const states: Record<string, boolean> = {
+      esp32: connected,
+      encoder: connected && (sensors?.encoder ?? false),
+      mpu6050: connected && (sensors?.mpu6050 ?? false),
+      hcsr04: connected && (sensors?.hcsr04 ?? false),
+      lcd: connected && (sensors?.lcd ?? false),
+    };
+    for (const li of document.querySelectorAll<HTMLLIElement>("#iotSensors li")) {
+      const on = states[li.dataset.k ?? ""];
+      const b = li.querySelector(".badge")!;
+      b.textContent = on ? "online" : "offline";
+      b.className = "badge" + (on ? " ok" : "");
+    }
+
+    if (!connected || !t) {
+      this.lastVibLevel = "normal";
+      return;
+    }
+    const labels = { normal: "Normal", attention: "Atenção", high: "Alta" } as const;
+    const box = $("vibBox");
+    box.dataset.level = t.vibrationLevel;
+    $("vibLabel").textContent = sensors?.mpu6050 === false ? "Sem sensor" : labels[t.vibrationLevel];
+    $("vibPct").textContent = `${Math.round(t.vibrationPercent)}%`;
+    $("vibBar").style.width = `${t.vibrationPercent.toFixed(0)}%`;
+    $("distValue").textContent = t.distance === null ? "--" : t.distance.toFixed(1);
+    if (t.vibrationLevel === "high" && this.lastVibLevel !== "high") this.toast("Vibração alta detectada (MPU6050)", "warn");
+    this.lastVibLevel = t.vibrationLevel;
   }
 
   // ------------------------------------------------- componentes / tooltip

@@ -12,6 +12,9 @@
  *   ← ou −   girar para a esquerda (−RPM)
  *   Espaço / Enter   clique curto  → liga/desliga
  *   L                clique longo  → inverte o sentido
+ *   V                vibração (MPU6050): normal → atenção → alta
+ *   P                mão aproxima/afasta (HC-SR04 → vista explodida)
+ *   --mqtt           também publica no broker MQTT (TOPIC=… BROKER=…), como o firmware
  *   Ctrl+C           sair
  */
 import crypto from "node:crypto";
@@ -42,7 +45,7 @@ server.on("upgrade", (req, sock) => {
   );
   clients.add(sock);
   log(`[ws] cliente conectado (${clients.size})`);
-  sendTo(sock); // o "ESP32" é a referência ao conectar
+  hello(sock); // a aplicação responde com o estado (fonte da verdade)
 
   let buf = Buffer.alloc(0);
   sock.on("data", (d) => {
@@ -101,10 +104,23 @@ function frame(payload, op = 0x1) {
   return Buffer.concat([h, p]);
 }
 
-// ------------------------------------------------------------ Protocolo
-const json = () => JSON.stringify({ rpm: st.rpm, power: st.power, direction: st.direction });
-const sendTo = (sock) => sock.writable && sock.write(frame(json()));
-const broadcast = (except) => clients.forEach((c) => c !== except && sendTo(c));
+// ------------------------------------------------------------ Protocolo v2
+// Mesmo protocolo do firmware 2.0: a APLICAÇÃO é a fonte do estado.
+const sim = { vibLevel: 0, vibPct: 0, distance: null, hand: false, handT: 0, lastEncoder: 0 };
+// ---- MQTT (opcional): node tools/fake-esp32.mjs --mqtt [--demo]
+//      TOPIC=senai-furadeira/xxxx  BROKER=mqtts://broker.hivemq.com:8883
+const MQTT_MODE = process.argv.includes("--mqtt");
+const TOPIC = (process.env.TOPIC || "senai-furadeira/d3f5f010").replace(/\/+$/, "");
+let mq = null;
+const mqPublish = (obj) => mq?.connected && mq.publish(`${TOPIC}/up`, JSON.stringify(obj));
+// sock = null → mensagem para a aplicação via MQTT
+const send = (sock, obj) => (sock ? sock.writable && sock.write(frame(JSON.stringify(obj))) : mqPublish(obj));
+const broadcastObj = (obj) => {
+  clients.forEach((c) => send(c, obj));
+  mqPublish(obj);
+};
+const SENSORS = { encoder: true, mpu6050: true, hcsr04: true, lcd: true };
+const hello = (sock) => send(sock, { type: "hello", device: "ESP32 simulado", fw: "2.0-sim", sensors: SENSORS });
 
 function onText(sock, text) {
   let d;
@@ -113,15 +129,15 @@ function onText(sock, text) {
   } catch {
     return;
   }
-  if (d.type === "hello") return sendTo(sock);
+  if (d.type === "hello") return hello(sock ?? null);
+  if (d.type !== "status" && d.type !== "state") return;
   const n = { ...st };
-  if (typeof d.rpm === "number") n.rpm = Math.max(0, Math.min(RPM_MAX, Math.round(d.rpm)));
+  if (typeof d.rpm === "number" && Date.now() - sim.lastEncoder > 500) n.rpm = Math.max(0, Math.min(RPM_MAX, Math.round(d.rpm)));
   if (typeof d.power === "boolean") n.power = d.power;
   if (d.direction === 1 || d.direction === -1) n.direction = d.direction;
   if (n.rpm !== st.rpm || n.power !== st.power || n.direction !== st.direction) {
     Object.assign(st, n);
-    log(`[página] ${describe()}`);
-    broadcast(sock); // sincroniza os outros clientes
+    log(`[LCD]     estado da app: ${describe()}${d.exploded ? "  (explodida)" : ""}`);
   }
 }
 
@@ -130,22 +146,68 @@ let lastTurn = 0;
 function turn(detents) {
   const now = Date.now();
   const step = now - lastTurn < FAST_MS ? STEP_FAST : STEP_SLOW;
-  lastTurn = now;
+  lastTurn = sim.lastEncoder = now;
   st.rpm = Math.max(0, Math.min(RPM_MAX, st.rpm + detents * step));
-  changed("RPM");
+  log(`[KY040]   RPM: ${st.rpm}`);
+  broadcastObj({ type: "event", event: "encoder", rpm: st.rpm });
 }
 function shortPress() {
-  st.power = !st.power;
-  changed(st.power ? "LIGAR" : "DESLIGAR");
+  log(`[KY040]   botão → ${st.power ? "desligar" : "ligar"}`);
+  broadcastObj({ type: "event", event: "power", power: !st.power });
 }
 function longPress() {
-  st.direction = -st.direction;
-  changed("INVERTER");
+  log("[KY040]   clique longo → inverter");
+  broadcastObj({ type: "event", event: "direction", direction: -st.direction });
 }
-function changed(why) {
-  log(`[encoder] ${why.padEnd(9)} ${describe()}`);
-  broadcast();
+
+// ------------------------------------------- "MPU6050" e "HC-SR04"
+function cycleVibration() {
+  sim.vibLevel = (sim.vibLevel + 1) % 3;
+  log(`[MPU6050] vibração simulada: ${["NORMAL", "ATENÇÃO", "ALTA"][sim.vibLevel]}`);
 }
+function toggleHand() {
+  sim.hand = !sim.hand;
+  log(`[HC-SR04] mão ${sim.hand ? "aproximando" : "afastando"}`);
+}
+let exploded = false;
+let near = 0;
+let far = 0;
+let lastSent = "";
+setInterval(() => {
+  // Vibração: alvo por nível + ruído, suavizada.
+  const target = [5, 48, 86][sim.vibLevel] + (Math.random() - 0.5) * 6;
+  sim.vibPct += (Math.max(0, target) - sim.vibPct) * 0.25;
+  // Mão: aproxima de 20 cm até 2 cm em ~2 s (e volta).
+  sim.handT = Math.max(0, Math.min(1, sim.handT + (sim.hand ? 0.025 : -0.025)));
+  sim.distance = sim.handT > 0 ? +(20 - 18 * sim.handT).toFixed(1) : null;
+  // Mesma regra do firmware: ≤3 cm (3 leituras) explode; ≥5 cm monta.
+  near = sim.distance !== null && sim.distance <= 3 ? near + 1 : 0;
+  far = sim.distance === null || sim.distance >= 5 ? far + 1 : 0;
+  if (!exploded && near >= 3) {
+    exploded = true;
+    log("[HC-SR04] ≤ 3 cm → explode");
+    broadcastObj({ type: "event", event: "explode" });
+  } else if (exploded && far >= 3) {
+    exploded = false;
+    log("[HC-SR04] ≥ 5 cm → monta");
+    broadcastObj({ type: "event", event: "assemble" });
+  }
+  const pct = +sim.vibPct.toFixed(1);
+  const level = pct > 70 ? "high" : pct > 30 ? "attention" : "normal";
+  const g = (pct / 100) * 0.35;
+  const msg = {
+    type: "telemetry",
+    rpm: st.rpm,
+    distance: sim.distance,
+    vibration: { x: +(g * 0.6).toFixed(3), y: +(g * 0.3).toFixed(3), z: +(g * 0.74).toFixed(3), magnitude: +g.toFixed(3), percent: pct, level },
+    sensors: SENSORS,
+  };
+  const key = `${Math.round(pct)}|${sim.distance}|${level}`;
+  if (key !== lastSent || Date.now() % 1000 < 50) {
+    lastSent = key;
+    broadcastObj(msg);
+  }
+}, 50);
 
 const describe = () =>
   `rpm=${String(st.rpm).padStart(4)}  ${st.power ? "LIGADA   " : "DESLIGADA"}  ${st.direction > 0 ? "horário" : "anti-horário"}`;
@@ -154,12 +216,12 @@ const log = (s) => console.log(s);
 // ------------------------------------------------------------- Entrada
 if (process.argv.includes("--demo") || !process.stdin.isTTY) {
   const seq = [
-    () => turn(+2), () => shortPress(), () => turn(+4), () => turn(+4), () => longPress(),
-    () => turn(-6), () => shortPress(),
+    () => turn(+2), () => shortPress(), () => turn(+4), () => cycleVibration(), () => toggleHand(),
+    () => cycleVibration(), () => toggleHand(), () => cycleVibration(), () => longPress(), () => turn(-6), () => shortPress(),
   ];
   let i = 0;
-  setInterval(() => seq[i++ % seq.length](), 1500);
-  log("Modo demonstração: muda o estado a cada 1,5 s.");
+  setInterval(() => seq[i++ % seq.length](), 2500);
+  log("Modo demonstração: muda algo a cada 2,5 s.");
 } else {
   process.stdin.setRawMode(true);
   process.stdin.setEncoding("utf8");
@@ -169,8 +231,29 @@ if (process.argv.includes("--demo") || !process.stdin.isTTY) {
     else if (k === "\u001b[D" || k === "-") turn(-1);
     else if (k === " " || k === "\r") shortPress();
     else if (k === "l" || k === "L") longPress();
+    else if (k === "v" || k === "V") cycleVibration();
+    else if (k === "p" || k === "P") toggleHand();
   });
-  log("Teclado: →/+ e ←/− giram, Espaço = clique curto, L = clique longo, Ctrl+C sai.");
+  log("Teclado: →/+ ←/− encoder · Espaço clique · L clique longo · V vibração · P mão (HC-SR04) · Ctrl+C sai.");
 }
 
-server.listen(PORT, () => log(`ESP32 simulado em ws://localhost:${PORT}  — ${describe()}`));
+server.listen(PORT, () => log(`ESP32 simulado (protocolo 2.0) em ws://localhost:${PORT}`));
+
+if (MQTT_MODE) {
+  const { connect } = await import("mqtt");
+  const broker = process.env.BROKER || "mqtts://broker.hivemq.com:8883";
+  mq = connect(broker, {
+    clientId: `furadeira-sim-${crypto.randomBytes(3).toString("hex")}`,
+    will: { topic: `${TOPIC}/online`, payload: "0", retain: true, qos: 1 }, // igual ao firmware
+  });
+  mq.on("connect", () => {
+    mq.publish(`${TOPIC}/online`, "1", { retain: true, qos: 1 });
+    mq.subscribe(`${TOPIC}/down`);
+    log(`[MQTT] conectado a ${broker} · tópico ${TOPIC}`);
+    hello(null);
+  });
+  mq.on("message", (_t, payload) => onText(null, payload.toString()));
+  mq.on("error", (e) => log(`[MQTT] erro: ${e.message}`));
+  const bye = () => mq.publish(`${TOPIC}/online`, "0", { retain: true }, () => process.exit(0));
+  process.on("SIGINT", bye);
+}

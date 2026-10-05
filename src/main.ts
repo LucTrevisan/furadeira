@@ -1,7 +1,7 @@
 import "./style.css";
 import { type AbstractMesh, Engine, type Material, Matrix, type Node, RenderTargetTexture, Vector3 } from "@babylonjs/core";
 import { ComponentInspector } from "./components";
-import { CAMERA_VIEW, DRILL, EXPLODE, HAND_DRIVE, MODEL, SCENE, VISUAL, WEBSOCKET, type XRAction } from "./config";
+import { CAMERA_VIEW, DRILL, EXPLODE, HAND_DRIVE, IOT, MODEL, SCENE, VISUAL, type XRAction } from "./config";
 import { enhanceMaterials } from "./materials";
 import { TrainingModule } from "./training";
 import { HandDrive } from "./handDrive";
@@ -14,7 +14,15 @@ import { addContactShadow, createScene, setupDesktopPostProcess } from "./scene"
 import { ControlPanelUI } from "./ui";
 import { VRPanel } from "./vrPanel";
 import { checkVRSupport, setupXR, type XRActionContext, type XRSetup } from "./webxr";
-import { Esp32Link, loadWsPreference, resolveWsUrl, saveWsPreference } from "./websocket";
+import {
+  Esp32Link,
+  type IoTSensors,
+  type IoTTelemetry,
+  loadLinkPrefs,
+  saveLinkPrefs,
+  shouldAutoConnect,
+  toTarget,
+} from "./websocket";
 
 // Erros nunca ficam silenciosos: aparecem na barra de status.
 const statusEl = document.getElementById("statusMsg");
@@ -63,11 +71,12 @@ async function main(): Promise<void> {
   const HOME_ALPHA = -Math.PI / 2 + (CAMERA_VIEW.yawDeg * Math.PI) / 180;
   const HOME_BETA = (CAMERA_VIEW.pitchDeg * Math.PI) / 180;
 
-  // URL do ESP32: ?ws=… > última usada neste navegador > padrão ("auto" = ponte /esp32).
-  const wsParam = new URLSearchParams(location.search).get("ws");
-  const wsPref = loadWsPreference();
-  const wsUrl = resolveWsUrl(wsParam ?? wsPref.url ?? WEBSOCKET.defaultUrl);
-  const wsAutoConnect = wsParam !== null || wsPref.connect === true || WEBSOCKET.autoConnect;
+  // Ligação com o ESP32: parâmetros da URL > escolha salva neste navegador > config.ts.
+  const linkPrefs = loadLinkPrefs();
+  // MQTT conecta sozinho em qualquer lugar (inclusive GitHub Pages); o WebSocket
+  // local só na rede local. Se o usuário desconectou antes, respeita.
+  const wsAutoConnect =
+    linkPrefs.connect ?? (linkPrefs.settings.transport === "mqtt" ? true : shouldAutoConnect());
   let link: Esp32Link | null = null;
   const ui = new ControlPanelUI(
     drill,
@@ -77,12 +86,12 @@ async function main(): Promise<void> {
       onRealSpeedChange: (real) => {
         if (anim) anim.speedFactor = real ? 1 : VISUAL.antiStrobeFactor;
       },
-      onWsToggle: (url) => {
+      onWsToggle: (settings) => {
         if (!link) return;
         const connect = !link.isActive;
-        if (connect) link.connect(resolveWsUrl(url));
+        if (connect) link.connect(toTarget(settings));
         else link.disconnect();
-        saveWsPreference({ url, connect });
+        saveLinkPrefs(settings, connect);
       },
       onReset: () => fullReset(),
       onExplodeToggle: () => toggleExplode(),
@@ -96,12 +105,42 @@ async function main(): Promise<void> {
       onTrainPrimary: () => training.primary(),
       onTrainStop: () => training.stop(),
     },
-    wsUrl,
+    linkPrefs.settings,
   );
   const training = new TrainingModule(ui.trainingView);
   ui.setSystemState("loading", "Carregando");
-  link = new Esp32Link(drill, (s, d) => ui.setWsStatus(s, d));
-  if (wsAutoConnect) link.connect(wsUrl);
+  // ---- Camada IoT (ESP32). ADITIVA: sem placa, nada muda (MODO NORMAL). ----
+  const iot = {
+    connected: false,
+    device: "",
+    sensors: null as IoTSensors | null,
+    telemetry: null as IoTTelemetry | null,
+    /** Vibração física 0..1 (alvo vindo do MPU6050 e valor suavizado). */
+    vibTarget: 0,
+    vib: 0,
+    dirty: true,
+  };
+  link = new Esp32Link(drill, {
+    onStatus: (s, d) => {
+      ui.setWsStatus(s, d);
+      iot.connected = s === "connected";
+      iot.dirty = true;
+    },
+    // HC-SR04: aciona a MESMA vista explodida dos botões.
+    onExplode: (on) => explodeTo(on),
+    onTelemetry: (t) => {
+      iot.telemetry = t;
+      if (t?.sensors) iot.sensors = t.sensors;
+      iot.vibTarget = t && iot.sensors?.mpu6050 !== false ? t.vibrationPercent / 100 : 0;
+      iot.dirty = true;
+      requestRender(2);
+    },
+    onHello: (h) => {
+      iot.device = h.device;
+      iot.sensors = h.sensors;
+      iot.dirty = true;
+    },
+  });
 
   if (engine.webGLVersion < 2) ui.setStatus("Aviso: WebGL2 indisponível — usando WebGL1.", "warn");
   ui.setFocusAvailable(false);
@@ -127,6 +166,8 @@ async function main(): Promise<void> {
     requestRender(3);
   }).observe(canvas);
   drill.onChange(() => requestRender(3));
+  // ESP32: conecta só agora (os handlers acima usam requestRender).
+  if (wsAutoConnect) link.connect(toTarget(linkPrefs.settings));
 
   // Treinamento: observa eventos da máquina (não comanda nada).
   let prevState = drill.state;
@@ -163,10 +204,15 @@ async function main(): Promise<void> {
     }
     placement?.update(dt);
     explode?.update(dt);
-    const amp = VISUAL.vibration.enabled
-      ? VISUAL.vibration.amplitude * (inXR ? VISUAL.vibration.xrFactor : 1)
-      : 0;
-    vibration?.update(dt, drill.currentRPM / DRILL.maxRPM, amp);
+    const xrK = inXR ? VISUAL.vibration.xrFactor : 1;
+    const amp = VISUAL.vibration.enabled ? VISUAL.vibration.amplitude * xrK : 0;
+    // MPU6050: microvibração proporcional à intensidade medida, suavizada
+    // (Scalar.Lerp exponencial). O VibrationEffect define offsets ABSOLUTOS
+    // sobre a posição original do nó: nunca há deriva pela cena.
+    iot.vib += (iot.vibTarget - iot.vib) * (1 - Math.exp(-dt / IOT.vibrationSmoothing));
+    if (iot.vib < 0.002 && iot.vibTarget === 0) iot.vib = 0;
+    const physAmp = IOT.vibrationAmplitude * iot.vib * xrK;
+    vibration?.update(dt, 1, amp * (drill.currentRPM / DRILL.maxRPM) + physAmp);
 
     if (tween) {
       tween.t = Math.min(1, tween.t + dt / 0.6);
@@ -184,10 +230,14 @@ async function main(): Promise<void> {
       uiAccum = 0;
       ui.tick(drill.currentRPM);
       if (inXR) vrPanel?.tick(drill.currentRPM);
+      if (iot.dirty) {
+        iot.dirty = false;
+        ui.setIoT(iot.connected, iot.telemetry, iot.sensors, iot.device);
+      }
     }
 
     const busy =
-      inXR || drill.isMoving || !!handDrive?.isGrabbing || !!placement?.isAnimating || !!explode?.isAnimating || tween !== null || cameraMoving() || scene.getWaitingItemsCount() > 0;
+      inXR || drill.isMoving || iot.vib > 0 || !!handDrive?.isGrabbing || !!placement?.isAnimating || !!explode?.isAnimating || tween !== null || cameraMoving() || scene.getWaitingItemsCount() > 0;
     if (wasBusy && !busy) requestRender(2); // um último quadro em repouso
     wasBusy = busy;
     if (busy || renderBudget > 0) {
@@ -274,6 +324,8 @@ async function main(): Promise<void> {
         vrPanel?.setExplode(f);
         if (VISUAL.explodeLabels && !inXR) inspector?.setLabelsVisible(f > 0.6);
         training.notify({ type: "explode", factor: f });
+        if (f >= 0.999) link?.setExploded(true); // LCD: estado real da vista
+        else if (f <= 0.001) link?.setExploded(false);
         requestRender(2);
       });
       ui.setExplodeAvailable(true);
@@ -479,10 +531,15 @@ async function main(): Promise<void> {
   /** Explode/monta animado; no desktop a câmera se afasta para caber tudo. */
   function toggleExplode(): void {
     if (!explode?.isReady) return;
-    const exploding = explode.factor <= 0.5;
-    explode.toggle();
+    explodeTo(explode.factor <= 0.5);
+  }
+
+  /** Explode (true) ou monta (false) — botões, teclado, VR e HC-SR04. */
+  function explodeTo(exploded: boolean): void {
+    if (!explode?.isReady) return;
+    explode.animateTo(exploded ? 1 : 0);
     if (!inXR && !focused && homeView) {
-      animateCamera(placement!.placementNode.position, fitRadius() * (exploding ? 1.5 : 1));
+      animateCamera(placement!.placementNode.position, fitRadius() * (exploded ? 1.5 : 1));
     }
   }
 

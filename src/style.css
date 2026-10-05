@@ -486,12 +486,16 @@ kbd {
 }
 
 .iot-body { display: grid; gap: var(--s2); margin-top: 10px; }
-.iot input[type="text"] {
+.iot-label { font: 600 11px var(--font); letter-spacing: 0.08em; text-transform: uppercase; color: var(--text-muted); }
+.iot-cfg { display: grid; gap: var(--s2); }
+.iot-pair { display: grid; grid-template-columns: 1fr 1fr; gap: var(--s2); }
+.iot select.iot-input { cursor: pointer; }
+.iot .iot-input, .iot input[type="text"] {
   width: 100%; height: 36px; padding: 0 10px;
   border-radius: var(--radius-sm); border: 1px solid var(--border-strong);
   background: var(--bg-inset); color: var(--text-primary); font: 12px var(--mono);
 }
-.iot input[type="text"]:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.iot .iot-input:focus-visible, .iot input[type="text"]:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 .iot-row { display: flex; align-items: center; gap: 10px; }
 .iot-row .btn { min-height: 34px; }
 .badge {
@@ -503,6 +507,32 @@ kbd {
 .badge.wait { background: rgba(242, 163, 58, 0.14); color: var(--accent); }
 .hint { color: var(--text-muted); font-size: 11.5px; }
 .hint code { font-family: var(--mono); color: var(--text-secondary); word-break: break-all; }
+
+/* ------------------------------------------------------------ Camada IoT */
+.iot-badge {
+  display: inline-flex; align-items: center; gap: 6px;
+  height: 28px; padding: 0 var(--s3);
+  border-radius: 99px; border: 1px solid rgba(78, 161, 240, 0.45);
+  background: rgba(78, 161, 240, 0.08); color: #8cc4f7;
+  font: 600 11px var(--font); letter-spacing: 0.08em; text-transform: uppercase; white-space: nowrap;
+}
+.iot-badge .ico { width: 14px; height: 14px; }
+.iot-badge .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--success); }
+.iot-val { display: flex; align-items: baseline; gap: 6px; margin-top: auto; font: 600 14px var(--font); white-space: nowrap; }
+.iot-val .ico { width: 16px; height: 16px; align-self: center; }
+.iot-num { font: 700 15px var(--mono); color: var(--text-primary); font-variant-numeric: tabular-nums; }
+.iot-val .unit { font: 600 11px var(--mono); color: var(--text-muted); }
+#vibBox[data-level="normal"] .iot-val { color: var(--success); }
+#vibBox[data-level="attention"] .iot-val { color: var(--warning); }
+#vibBox[data-level="high"] .iot-val { color: var(--danger); }
+#vibBox[data-level="high"] { border-color: rgba(234, 84, 85, 0.45); }
+#vibBar { height: 100%; width: 0%; background: var(--success); transition: width 120ms linear, background-color 200ms; }
+#vibBox[data-level="attention"] #vibBar { background: var(--warning); }
+#vibBox[data-level="high"] #vibBar { background: var(--danger); }
+.iot-mode { font-size: 12.5px; color: var(--text-secondary); }
+.iot-mode.on { color: #8cc4f7; }
+.sensors { margin: 0; padding: 0; list-style: none; display: grid; gap: 4px; }
+.sensors li { display: flex; align-items: center; justify-content: space-between; font-size: 12.5px; color: var(--text-secondary); }
 
 /* ------------------------------------------------------------- Segurança */
 .card-safety { background: transparent; border-style: dashed; }
@@ -590,7 +620,7 @@ body.xr-active .workspace { grid-template-columns: 1fr; }
   }
   .panel-head { display: flex; }
   .app.panel-collapsed .panel { transform: translateX(100%); }
-  .sys-state { display: none; }
+  .sys-state, .iot-badge { display: none; }
 }
 
 @media (max-width: 720px) {

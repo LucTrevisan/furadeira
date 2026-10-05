@@ -326,8 +326,46 @@ export const WEBSOCKET = {
    * Para conectar direto no ESP32 (página em HTTP): "ws://192.168.x.x:81".
    */
   defaultUrl: "auto",
-  /** Conecta ao abrir a página. A escolha do usuário fica salva no navegador. */
-  autoConnect: false,
-  reconnectBaseMs: 1000,
-  reconnectMaxMs: 15000,
+  /**
+   * Conecta ao abrir a página. "local" = automaticamente quando a página vem
+   * da rede local (localhost, 192.168.x.x, *.local…), onde a ponte /esp32
+   * existe; em sites publicados (GitHub Pages) só se o usuário pedir.
+   * Sem ESP32 a aplicação segue no MODO NORMAL, sem nenhuma diferença.
+   */
+  autoConnect: "local" as boolean | "local",
+  /** Reconexão: 1 s, 2 s, 5 s e depois a cada 10 s. */
+  reconnectDelaysMs: [1000, 2000, 5000, 10000],
+  /**
+   * Via padrão até o ESP32: "mqtt" (broker; funciona também no GitHub Pages)
+   * ou "websocket" (ponte /esp32 do "npm run dev"). Pode ser trocada na
+   * interface (IoT / Hardware); a escolha fica salva no navegador.
+   */
+  transport: "mqtt" as "mqtt" | "websocket",
+};
+
+/**
+ * Broker MQTT. A página usa MQTT sobre WebSocket seguro (wss), por isso
+ * funciona também em páginas HTTPS (GitHub Pages, Meta Quest).
+ * O tópico precisa ser o MESMO do firmware (MQTT_TOPIC).
+ */
+export const MQTT = {
+  url: "wss://broker.hivemq.com:8884/mqtt",
+  topic: "senai-furadeira/d3f5f010",
+  /** Broker com autenticação: preencha na interface (não no código público). */
+  username: "",
+  password: "",
+  /** A aplicação avisa a placa que está ativa a cada N ms (o LCD usa isso). */
+  heartbeatMs: 5000,
+};
+
+/** Camada IoT (ESP32 + KY-040 + MPU6050 + HC-SR04 + LCD). */
+export const IOT = {
+  /** Log no console: [ESP32], [KY040], [MPU6050], [HC-SR04]. */
+  debug: false,
+  /** Deslocamento visual máximo (m) quando o MPU6050 indica 100 % de vibração. */
+  vibrationAmplitude: 0.0012,
+  /** Suavização da vibração visual (s). */
+  vibrationSmoothing: 0.12,
+  /** Faixas (%) usadas se o ESP32 não informar o nível. Calibráveis. */
+  levels: { attention: 30, high: 70 },
 };

@@ -29,6 +29,8 @@
         <symbol id="i-shield" viewBox="0 0 24 24"><path d="M12 3 5 6v5c0 4.4 3 8 7 10 4-2 7-5.6 7-10V6z" /><path d="M12 8v5M12 16h.01" /></symbol>
         <symbol id="i-cap" viewBox="0 0 24 24"><path d="M2.5 9 12 4.5 21.5 9 12 13.5zM6.5 11v4.5c1.6 1.6 3.4 2.4 5.5 2.4s3.9-.8 5.5-2.4V11M21.5 9v5" /></symbol>
         <symbol id="i-info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" /><path d="M12 11v6M12 7.5h.01" /></symbol>
+        <symbol id="i-wave" viewBox="0 0 24 24"><path d="M2 12h3l2-6 3 12 3-9 2 6 2-3h5" /></symbol>
+        <symbol id="i-chip" viewBox="0 0 24 24"><rect x="7" y="7" width="10" height="10" rx="1.5" /><path d="M10 3v4M14 3v4M10 17v4M14 17v4M3 10h4M3 14h4M17 10h4M17 14h4" /></symbol>
       </defs>
     </svg>
 
@@ -46,6 +48,9 @@
         <div id="sysState" class="sys-state" data-state="loading" role="status" aria-live="polite">
           <span class="dot" aria-hidden="true"></span><span id="sysStateText">Carregando</span>
         </div>
+        <span id="iotBadge" class="iot-badge" hidden title="ESP32 conectado: sensores físicos interagem com o gêmeo digital">
+          <svg class="ico" aria-hidden="true"><use href="#i-chip" /></svg>Modo IoT <span class="dot" aria-hidden="true"></span> ESP32
+        </span>
 
         <div class="appbar-actions">
           <span id="xrBadge" class="xr-badge" data-state="checking" title="Verificando suporte a WebXR">
@@ -117,6 +122,21 @@
                     </svg>
                     <span id="dirLabel">Horário</span>
                   </span>
+                </div>
+              </div>
+              <!-- Camada IoT: visível só com o ESP32 conectado -->
+              <div id="iotRow" class="metrics iot-metrics" hidden>
+                <div id="vibBox" class="metric" data-level="normal">
+                  <span class="m-label">Vibração</span>
+                  <span class="iot-val">
+                    <svg class="ico" aria-hidden="true"><use href="#i-wave" /></svg>
+                    <span id="vibLabel">Normal</span><span id="vibPct" class="iot-num">0%</span>
+                  </span>
+                  <div class="rpm-bar" aria-hidden="true"><div id="vibBar"></div></div>
+                </div>
+                <div class="metric">
+                  <span class="m-label">Proximidade</span>
+                  <span class="iot-val"><span id="distValue" class="iot-num">--</span><span class="unit">cm</span></span>
                 </div>
               </div>
             </section>
@@ -215,14 +235,37 @@
               </details>
 
               <details class="more iot">
-                <summary>Integração ESP32 (WebSocket)</summary>
+                <summary>IoT / Hardware (ESP32)</summary>
                 <div class="iot-body">
-                  <input id="wsUrl" type="text" spellcheck="false" autocomplete="off" aria-label="URL do WebSocket" />
+                  <p id="iotMode" class="iot-mode">Modo normal · ESP32 não conectado</p>
+                  <ul id="iotSensors" class="sensors" aria-label="Estado dos dispositivos">
+                    <li data-k="esp32"><span>ESP32</span><span class="badge">offline</span></li>
+                    <li data-k="encoder"><span>KY-040 · rotação</span><span class="badge">offline</span></li>
+                    <li data-k="mpu6050"><span>MPU6050 · vibração</span><span class="badge">offline</span></li>
+                    <li data-k="hcsr04"><span>HC-SR04 · proximidade</span><span class="badge">offline</span></li>
+                    <li data-k="lcd"><span>LCD 16x2</span><span class="badge">offline</span></li>
+                  </ul>
+                  <label class="iot-label" for="iotTransport">Via de comunicação</label>
+                  <select id="iotTransport" class="iot-input">
+                    <option value="mqtt">MQTT (broker · rede IoT / internet)</option>
+                    <option value="websocket">WebSocket local (npm run dev)</option>
+                  </select>
+                  <div id="cfgMqtt" class="iot-cfg">
+                    <input id="mqttUrl" class="iot-input" type="text" spellcheck="false" autocomplete="off" aria-label="Broker MQTT (wss://)" placeholder="wss://broker:8884/mqtt" />
+                    <input id="mqttTopic" class="iot-input" type="text" spellcheck="false" autocomplete="off" aria-label="Tópico MQTT" placeholder="tópico (igual ao MQTT_TOPIC do firmware)" />
+                    <div class="iot-pair">
+                      <input id="mqttUser" class="iot-input" type="text" spellcheck="false" autocomplete="off" aria-label="Usuário do broker (opcional)" placeholder="usuário (opcional)" />
+                      <input id="mqttPass" class="iot-input" type="password" autocomplete="off" aria-label="Senha do broker (opcional)" placeholder="senha (opcional)" />
+                    </div>
+                  </div>
+                  <div id="cfgWs" class="iot-cfg" hidden>
+                    <input id="wsUrl" class="iot-input" type="text" spellcheck="false" autocomplete="off" aria-label="URL do WebSocket" />
+                  </div>
                   <div class="iot-row">
                     <button id="btnWs" class="btn btn-ghost" type="button">Conectar</button>
                     <span id="wsStatus" class="badge">desconectado</span>
                   </div>
-                  <p class="hint">Formato: <code>{"rpm":1500,"power":true,"direction":1}</code></p>
+                  <p class="hint">O tópico deve ser igual ao <code>MQTT_TOPIC</code> do firmware.</p>
                 </div>
               </details>
             </section>

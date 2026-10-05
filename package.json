@@ -11,12 +11,14 @@
     "preview": "vite preview",
     "preview:https": "vite preview --mode https",
     "typecheck": "tsc --noEmit",
-    "esp32:sim": "node tools/fake-esp32.mjs"
+    "esp32:sim": "node tools/fake-esp32.mjs",
+    "esp32:sim:mqtt": "node tools/fake-esp32.mjs --mqtt"
   },
   "dependencies": {
     "@babylonjs/core": "9.29.0",
     "@babylonjs/gui": "9.29.0",
-    "@babylonjs/loaders": "9.29.0"
+    "@babylonjs/loaders": "9.29.0",
+    "mqtt": "^5.16.0"
   },
   "devDependencies": {
     "@vitejs/plugin-basic-ssl": "^2.3.0",
