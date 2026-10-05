@@ -351,6 +351,12 @@ export function loadLinkPrefs(): { settings: LinkSettings; connect?: boolean } {
   } catch {
     // ignora
   }
+  // Preferência salva com um broker padrão antigo → usa o padrão atual.
+  const legacy = typeof p.mqttUrl === "string" && MQTT.legacyUrls.includes(p.mqttUrl);
+  if (legacy) {
+    delete p.mqttUrl;
+    delete p.mqttUser;
+  }
   const settings: LinkSettings = {
     transport: p.transport === "websocket" || p.transport === "mqtt" ? p.transport : WEBSOCKET.transport,
     wsUrl: str(p.wsUrl, str(old.url, WEBSOCKET.defaultUrl)),

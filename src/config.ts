@@ -344,16 +344,19 @@ export const WEBSOCKET = {
 };
 
 /**
- * Broker MQTT. A página usa MQTT sobre WebSocket seguro (wss), por isso
- * funciona também em páginas HTTPS (GitHub Pages, Meta Quest).
+ * Broker MQTT. A página usa MQTT sobre WebSocket seguro (wss) na porta 443 —
+ * a mesma do HTTPS, liberada até em redes corporativas que bloqueiam as portas
+ * de MQTT (1883/8883/8884). Funciona em páginas HTTPS (GitHub Pages, Quest).
  * O tópico precisa ser o MESMO do firmware (MQTT_TOPIC).
+ * Padrão: shiftr.io público (usuário/senha "public", credenciais públicas).
  */
 export const MQTT = {
-  url: "wss://broker.hivemq.com:8884/mqtt",
+  url: "wss://public.cloud.shiftr.io:443",
   topic: "senai-furadeira/d3f5f010",
-  /** Broker com autenticação: preencha na interface (não no código público). */
-  username: "",
-  password: "",
+  username: "public",
+  password: "public",
+  /** Brokers padrão anteriores: preferências salvas com eles migram para o atual. */
+  legacyUrls: ["wss://broker.hivemq.com:8884/mqtt"],
   /** A aplicação avisa a placa que está ativa a cada N ms (o LCD usa isso). */
   heartbeatMs: 5000,
 };

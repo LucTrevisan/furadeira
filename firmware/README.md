@@ -83,8 +83,12 @@ A placa e a página não precisam se "enxergar" na rede: as duas só falam com
 o broker. Por isso funciona na rede IoT da escola **e no link do GitHub
 Pages**, sem `npm run dev`.
 
-* Broker padrão: **HiveMQ público** — placa em `broker.hivemq.com:8883` (TLS),
-  página em `wss://broker.hivemq.com:8884/mqtt`.
+* Broker padrão: **shiftr.io público** (usuário e senha `public`) — placa em
+  `public.cloud.shiftr.io:8883` (TLS), página em `wss://public.cloud.shiftr.io:443`.
+  A página usa a **porta 443** (a mesma do HTTPS) de propósito: redes
+  corporativas, como a `sesisenai.sp`, bloqueiam as portas de MQTT
+  (1883/8883/8884), mas liberam a 443. O ESP32, na rede IoT, usa a 8883.
+* Para ver as mensagens ao vivo (ótimo para aula): https://public.cloud.shiftr.io
 * Tópico exclusivo desta furadeira: **`senai-furadeira/d3f5f010`**
   (`MQTT_TOPIC` no sketch e campo *Tópico* na página — **os dois iguais**).
   * `<tópico>/up`     placa → página (hello, eventos, telemetria)
@@ -97,7 +101,7 @@ Pages**, sem `npm run dev`.
 
 > **Segurança.** No broker público, qualquer pessoa que souber o tópico pode
 > ler e enviar comandos. Para uso contínuo use um broker com usuário/senha
-> (HiveMQ Cloud gratuito, ou um Mosquitto da escola): troque `MQTT_HOST`,
+> (por exemplo, uma instância própria do shiftr.io ou um Mosquitto da escola com WebSocket na 443): troque `MQTT_HOST`,
 > defina `MQTT_USER`/`MQTT_PASS` no `secrets.h` e informe usuário/senha nos
 > campos da página (a senha fica só na sessão do navegador). O broker precisa
 > oferecer **MQTT sobre WebSocket seguro (wss)** para a página.

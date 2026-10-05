@@ -108,7 +108,7 @@ function frame(payload, op = 0x1) {
 // Mesmo protocolo do firmware 2.0: a APLICAÇÃO é a fonte do estado.
 const sim = { vibLevel: 0, vibPct: 0, distance: null, hand: false, handT: 0, lastEncoder: 0 };
 // ---- MQTT (opcional): node tools/fake-esp32.mjs --mqtt [--demo]
-//      TOPIC=senai-furadeira/xxxx  BROKER=mqtts://broker.hivemq.com:8883
+//      TOPIC=senai-furadeira/xxxx  BROKER=wss://public.cloud.shiftr.io:443  (usuário/senha "public")
 const MQTT_MODE = process.argv.includes("--mqtt");
 const TOPIC = (process.env.TOPIC || "senai-furadeira/d3f5f010").replace(/\/+$/, "");
 let mq = null;
@@ -241,8 +241,10 @@ server.listen(PORT, () => log(`ESP32 simulado (protocolo 2.0) em ws://localhost:
 
 if (MQTT_MODE) {
   const { connect } = await import("mqtt");
-  const broker = process.env.BROKER || "mqtts://broker.hivemq.com:8883";
+  const broker = process.env.BROKER || "wss://public.cloud.shiftr.io:443";
   mq = connect(broker, {
+    username: process.env.MQTT_USER ?? "public",
+    password: process.env.MQTT_PASS ?? "public",
     clientId: `furadeira-sim-${crypto.randomBytes(3).toString("hex")}`,
     will: { topic: `${TOPIC}/online`, payload: "0", retain: true, qos: 1 }, // igual ao firmware
   });

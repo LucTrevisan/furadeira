@@ -92,21 +92,22 @@ const uint16_t WS_PORT = 81;
 const uint32_t WIFI_TIMEOUT_MS = 15000;
 
 // ---- MQTT ----
-// Broker padrão: HiveMQ público (sem conta). O tópico abaixo é exclusivo desta
-// furadeira — a aplicação web precisa usar o MESMO tópico. Em broker público
-// qualquer um que saiba o tópico pode publicar: para uso contínuo prefira um
-// broker com usuário/senha (HiveMQ Cloud, Mosquitto da escola) e defina
-// MQTT_USER / MQTT_PASS no secrets.h.
+// Broker padrão: shiftr.io público (usuário/senha "public"). Escolhido porque a
+// PÁGINA chega a ele pela porta 443 (wss), liberada até em redes corporativas
+// que bloqueiam as portas de MQTT. O tópico abaixo é exclusivo desta furadeira
+// — a aplicação web precisa usar o MESMO tópico. Em broker público qualquer um
+// que saiba o tópico pode publicar: para uso contínuo prefira um broker
+// privado e defina MQTT_USER / MQTT_PASS no secrets.h.
 #define MQTT_ENABLED 1
-const char* MQTT_HOST = "broker.hivemq.com";
+const char* MQTT_HOST = "public.cloud.shiftr.io";
 const uint16_t MQTT_PORT = 8883;  // 8883 = TLS · 1883 = sem criptografia
 #define MQTT_TLS 1                // 1 = TLS (sem validar o certificado: criptografa, mas não autentica o broker)
 const char* MQTT_TOPIC = "senai-furadeira/d3f5f010";
 #ifndef MQTT_USER
-#define MQTT_USER ""
+#define MQTT_USER "public"  // credencial pública do shiftr.io
 #endif
 #ifndef MQTT_PASS
-#define MQTT_PASS ""
+#define MQTT_PASS "public"
 #endif
 const uint32_t MQTT_RETRY_MS = 8000;      // nova tentativa de conexão com o broker
 const uint32_t MQTT_APP_TIMEOUT_MS = 15000; // sem mensagem da app por este tempo = app desconectada
