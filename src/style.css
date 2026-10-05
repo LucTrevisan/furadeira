@@ -512,12 +512,21 @@ kbd {
 .iot-badge {
   display: inline-flex; align-items: center; gap: 6px;
   height: 28px; padding: 0 var(--s3);
-  border-radius: 99px; border: 1px solid rgba(78, 161, 240, 0.45);
-  background: rgba(78, 161, 240, 0.08); color: #8cc4f7;
+  border-radius: 99px; border: 1px solid var(--border-strong);
+  background: var(--bg-inset); color: var(--text-secondary);
   font: 600 11px var(--font); letter-spacing: 0.08em; text-transform: uppercase; white-space: nowrap;
+  cursor: pointer; transition: border-color var(--t), color var(--t), background-color var(--t);
 }
+.iot-badge:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .iot-badge .ico { width: 14px; height: 14px; }
-.iot-badge .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--success); }
+.iot-badge .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--text-muted); flex: none; }
+.iot-badge[data-state="wait"] { color: var(--warning); border-color: rgba(242, 163, 58, 0.45); }
+.iot-badge[data-state="wait"] .dot { background: var(--warning); animation: pulse 1.2s ease-in-out infinite; }
+.iot-badge[data-state="on"] { color: var(--success); border-color: rgba(52, 194, 122, 0.5); background: rgba(52, 194, 122, 0.08); }
+.iot-badge[data-state="on"] .dot { background: var(--success); }
+.card-iot[data-state="on"] { border-color: rgba(52, 194, 122, 0.35); }
+.card-iot[data-state="wait"] { border-color: rgba(242, 163, 58, 0.3); }
+.card-iot .iot-row .hint { margin-left: auto; }
 .iot-val { display: flex; align-items: baseline; gap: 6px; margin-top: auto; font: 600 14px var(--font); white-space: nowrap; }
 .iot-val .ico { width: 16px; height: 16px; align-self: center; }
 .iot-num { font: 700 15px var(--mono); color: var(--text-primary); font-variant-numeric: tabular-nums; }
@@ -620,13 +629,13 @@ body.xr-active .workspace { grid-template-columns: 1fr; }
   }
   .panel-head { display: flex; }
   .app.panel-collapsed .panel { transform: translateX(100%); }
-  .sys-state, .iot-badge { display: none; }
+  .sys-state { display: none; }
 }
 
 @media (max-width: 720px) {
   :root { --header-h: 52px; }
   .appbar { gap: var(--s2); padding: 0 var(--s3); }
-  .brand-text p, .xr-badge, .btn-panel .lbl { display: none; }
+  .brand-text p, .xr-badge, .btn-panel .lbl, #iotBadgeText { display: none; }
   .brand-text h1 { font-size: 15px; }
   .btn-vr { padding: 0 var(--s3); }
   .vp-toolbar .btn span { display: none; }

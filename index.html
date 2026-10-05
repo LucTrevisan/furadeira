@@ -48,9 +48,9 @@
         <div id="sysState" class="sys-state" data-state="loading" role="status" aria-live="polite">
           <span class="dot" aria-hidden="true"></span><span id="sysStateText">Carregando</span>
         </div>
-        <span id="iotBadge" class="iot-badge" hidden title="ESP32 conectado: sensores físicos interagem com o gêmeo digital">
-          <svg class="ico" aria-hidden="true"><use href="#i-chip" /></svg>Modo IoT <span class="dot" aria-hidden="true"></span> ESP32
-        </span>
+        <button id="iotBadge" class="iot-badge" data-state="off" type="button" title="Conexão com o ESP32 (clique para detalhes)">
+          <span class="dot" aria-hidden="true"></span><svg class="ico" aria-hidden="true"><use href="#i-chip" /></svg><span id="iotBadgeText">ESP32 desconectado</span>
+        </button>
 
         <div class="appbar-actions">
           <span id="xrBadge" class="xr-badge" data-state="checking" title="Verificando suporte a WebXR">
@@ -139,6 +139,48 @@
                   <span class="iot-val"><span id="distValue" class="iot-num">--</span><span class="unit">cm</span></span>
                 </div>
               </div>
+            </section>
+
+            <!-- CONEXÃO ESP32 (sempre visível) -->
+            <section id="iotCard" class="card card-iot iot" data-state="off" aria-labelledby="h-iot">
+              <header class="card-h">
+                <h2 id="h-iot"><svg class="ico" aria-hidden="true"><use href="#i-chip" /></svg>Conexão ESP32</h2>
+                <span id="wsStatus" class="badge">desconectado</span>
+              </header>
+              <p id="iotMode" class="iot-mode">Modo normal · ESP32 não conectado</p>
+              <ul id="iotSensors" class="sensors" aria-label="Estado dos dispositivos">
+                <li data-k="esp32"><span>ESP32</span><span class="badge">offline</span></li>
+                <li data-k="encoder"><span>KY-040 · rotação</span><span class="badge">offline</span></li>
+                <li data-k="mpu6050"><span>MPU6050 · vibração</span><span class="badge">offline</span></li>
+                <li data-k="hcsr04"><span>HC-SR04 · proximidade</span><span class="badge">offline</span></li>
+                <li data-k="lcd"><span>LCD 16x2</span><span class="badge">offline</span></li>
+              </ul>
+              <div class="iot-row">
+                <button id="btnWs" class="btn btn-ghost" type="button">Conectar</button>
+                <span class="hint">MQTT · tópico do firmware</span>
+              </div>
+              <details class="more">
+                <summary>Configurar conexão</summary>
+                <div class="iot-body">
+                  <label class="iot-label" for="iotTransport">Via de comunicação</label>
+                  <select id="iotTransport" class="iot-input">
+                    <option value="mqtt">MQTT (broker · rede IoT / internet)</option>
+                    <option value="websocket">WebSocket local (npm run dev)</option>
+                  </select>
+                  <div id="cfgMqtt" class="iot-cfg">
+                    <input id="mqttUrl" class="iot-input" type="text" spellcheck="false" autocomplete="off" aria-label="Broker MQTT (wss://)" placeholder="wss://broker:8884/mqtt" />
+                    <input id="mqttTopic" class="iot-input" type="text" spellcheck="false" autocomplete="off" aria-label="Tópico MQTT" placeholder="tópico (igual ao MQTT_TOPIC do firmware)" />
+                    <div class="iot-pair">
+                      <input id="mqttUser" class="iot-input" type="text" spellcheck="false" autocomplete="off" aria-label="Usuário do broker (opcional)" placeholder="usuário (opcional)" />
+                      <input id="mqttPass" class="iot-input" type="password" autocomplete="off" aria-label="Senha do broker (opcional)" placeholder="senha (opcional)" />
+                    </div>
+                  </div>
+                  <div id="cfgWs" class="iot-cfg" hidden>
+                    <input id="wsUrl" class="iot-input" type="text" spellcheck="false" autocomplete="off" aria-label="URL do WebSocket" />
+                  </div>
+                  <p class="hint">O tópico deve ser igual ao <code>MQTT_TOPIC</code> do firmware.</p>
+                </div>
+              </details>
             </section>
 
             <!-- CONTROLE DE ROTAÇÃO -->
@@ -234,40 +276,6 @@
                 </ul>
               </details>
 
-              <details class="more iot">
-                <summary>IoT / Hardware (ESP32)</summary>
-                <div class="iot-body">
-                  <p id="iotMode" class="iot-mode">Modo normal · ESP32 não conectado</p>
-                  <ul id="iotSensors" class="sensors" aria-label="Estado dos dispositivos">
-                    <li data-k="esp32"><span>ESP32</span><span class="badge">offline</span></li>
-                    <li data-k="encoder"><span>KY-040 · rotação</span><span class="badge">offline</span></li>
-                    <li data-k="mpu6050"><span>MPU6050 · vibração</span><span class="badge">offline</span></li>
-                    <li data-k="hcsr04"><span>HC-SR04 · proximidade</span><span class="badge">offline</span></li>
-                    <li data-k="lcd"><span>LCD 16x2</span><span class="badge">offline</span></li>
-                  </ul>
-                  <label class="iot-label" for="iotTransport">Via de comunicação</label>
-                  <select id="iotTransport" class="iot-input">
-                    <option value="mqtt">MQTT (broker · rede IoT / internet)</option>
-                    <option value="websocket">WebSocket local (npm run dev)</option>
-                  </select>
-                  <div id="cfgMqtt" class="iot-cfg">
-                    <input id="mqttUrl" class="iot-input" type="text" spellcheck="false" autocomplete="off" aria-label="Broker MQTT (wss://)" placeholder="wss://broker:8884/mqtt" />
-                    <input id="mqttTopic" class="iot-input" type="text" spellcheck="false" autocomplete="off" aria-label="Tópico MQTT" placeholder="tópico (igual ao MQTT_TOPIC do firmware)" />
-                    <div class="iot-pair">
-                      <input id="mqttUser" class="iot-input" type="text" spellcheck="false" autocomplete="off" aria-label="Usuário do broker (opcional)" placeholder="usuário (opcional)" />
-                      <input id="mqttPass" class="iot-input" type="password" autocomplete="off" aria-label="Senha do broker (opcional)" placeholder="senha (opcional)" />
-                    </div>
-                  </div>
-                  <div id="cfgWs" class="iot-cfg" hidden>
-                    <input id="wsUrl" class="iot-input" type="text" spellcheck="false" autocomplete="off" aria-label="URL do WebSocket" />
-                  </div>
-                  <div class="iot-row">
-                    <button id="btnWs" class="btn btn-ghost" type="button">Conectar</button>
-                    <span id="wsStatus" class="badge">desconectado</span>
-                  </div>
-                  <p class="hint">O tópico deve ser igual ao <code>MQTT_TOPIC</code> do firmware.</p>
-                </div>
-              </details>
             </section>
 
             <!-- SEGURANÇA -->

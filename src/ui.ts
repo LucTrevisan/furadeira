@@ -146,6 +146,11 @@ export class ControlPanelUI {
 
     // ---- Painel recolhível --------------------------------------------------
     $("btnPanel").addEventListener("click", () => this.setPanelOpen(this.app.classList.contains("panel-collapsed")));
+    // Selo do ESP32 no header: leva ao card de conexão.
+    $("iotBadge").addEventListener("click", () => {
+      this.setPanelOpen(true);
+      $("iotCard").scrollIntoView({ behavior: "smooth", block: "start" });
+    });
     $("panelToggle").addEventListener("click", () => this.setPanelOpen(false));
     if (window.innerWidth <= 1100) this.setPanelOpen(false);
 
@@ -331,6 +336,15 @@ export class ControlPanelUI {
   }
 
   setWsStatus(status: WsStatus, detail = ""): void {
+    // Selo do header + borda do card: sempre visíveis (desconectado/aguardando/conectado).
+    const waiting = status === "connecting" || (status === "error" && this.btnWs.textContent === "Desconectar");
+    const via = $<HTMLSelectElement>("iotTransport").value === "mqtt" ? "MQTT" : "WebSocket";
+    const state = status === "connected" ? "on" : waiting ? "wait" : "off";
+    $("iotBadge").dataset.state = state;
+    $("iotCard").dataset.state = state;
+    $("iotBadgeText").textContent =
+      state === "on" ? `ESP32 conectado · ${via}` : state === "wait" ? (detail.includes("aguardando") ? "Aguardando ESP32" : "Conectando…") : "ESP32 desconectado";
+    $("iotBadge").title = detail || "Conexão com o ESP32 (clique para detalhes)";
     const labels: Record<WsStatus, string> = {
       disconnected: "desconectado",
       connecting: "conectando…",
@@ -338,7 +352,7 @@ export class ControlPanelUI {
       error: "erro",
     };
     // MQTT: broker conectado, mas a placa ainda não respondeu.
-    this.wsStatus.textContent = status === "connecting" && detail.includes("aguardando") ? "aguardando ESP32" : labels[status];
+    this.wsStatus.textContent = status === "connecting" && detail.includes("aguardando") ? "aguardando" : labels[status];
     this.wsStatus.title = detail;
     this.wsStatus.className = "badge" + (status === "connected" ? " ok" : status === "error" ? " err" : status === "connecting" ? " wait" : "");
     this.btnWs.textContent = status === "disconnected" || status === "error" ? "Conectar" : "Desconectar";
@@ -384,7 +398,6 @@ export class ControlPanelUI {
    * oculto e a interface é exatamente a de antes.
    */
   setIoT(connected: boolean, t: IoTTelemetry | null, sensors: IoTSensors | null, device = ""): void {
-    $("iotBadge").hidden = !connected;
     $("iotRow").hidden = !connected || !t;
     const mode = $("iotMode");
     mode.textContent = connected ? `Modo IoT · ${device || "ESP32"} online` : "Modo normal · ESP32 não conectado";

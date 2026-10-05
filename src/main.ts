@@ -1,5 +1,5 @@
 import "./style.css";
-import { type AbstractMesh, Engine, type Material, Matrix, type Node, RenderTargetTexture, Vector3 } from "@babylonjs/core";
+import { type AbstractMesh, Engine, type Material, Matrix, type Node, RenderTargetTexture, ShadowGenerator, Vector3 } from "@babylonjs/core";
 import { ComponentInspector } from "./components";
 import { CAMERA_VIEW, DRILL, EXPLODE, HAND_DRIVE, IOT, MODEL, SCENE, VISUAL, type XRAction } from "./config";
 import { enhanceMaterials } from "./materials";
@@ -55,7 +55,7 @@ async function main(): Promise<void> {
   let inspector: ComponentInspector | null = null;
   let ssaoPipeline: import("@babylonjs/core").SSAO2RenderingPipeline | null = null;
   // Desempenho: se o desktop não sustentar ~30 FPS com SSAO, ele é desligado.
-  const perf = { frames: 0, time: 0, checked: false };
+  const perf = { frames: 0, time: 0, checked: false, step: 0 };
   // Câmera desktop: visão geral (definida após carregar) e foco no mandril.
   let homeView: { target: Vector3; radius: number } | null = null;
   let focused = false;
@@ -64,7 +64,8 @@ async function main(): Promise<void> {
   // ===================== A. Motor, cena e loop de renderização ==============
   const engine = new Engine(canvas, true, { stencil: true, powerPreference: "high-performance" }, false);
   // Limita a densidade de pixels (celulares com DPR 3 ficariam pesados à toa).
-  engine.setHardwareScalingLevel(1 / Math.min(window.devicePixelRatio || 1, 2));
+  // Telas de alta densidade: no máximo 1,5× (a 2× são 78% mais pixels por quadro).
+  engine.setHardwareScalingLevel(1 / Math.min(window.devicePixelRatio || 1, 1.5));
   const ctx = createScene(engine, canvas);
   const { scene, camera } = ctx;
   camera.inputs.removeByType("ArcRotateCameraKeyboardMoveInput"); // setas = RPM
@@ -248,7 +249,7 @@ async function main(): Promise<void> {
     if (busy || renderBudget > 0) {
       scene.render();
       if (renderBudget > 0) renderBudget--;
-      if (busy && !inXR && ssaoPipeline && !perf.checked) watchPerformance(dt * 1000);
+      if (busy && !inXR && !perf.checked) watchPerformance(dt * 1000);
     }
   });
 
@@ -562,16 +563,40 @@ async function main(): Promise<void> {
   }
 
   /** Mede o FPS durante animações; com média < 28 FPS desliga o SSAO (uma vez). */
+  /**
+   * Mede o FPS durante animações (4 s). Abaixo de ~28 FPS simplifica em etapas,
+   * medindo de novo após cada uma: 1) SSAO · 2) sombras leves · 3) só a sombra
+   * de contato. Fica fluido em máquinas modestas sem afetar as potentes.
+   */
   function watchPerformance(frameMs: number): void {
     perf.frames++;
     perf.time += frameMs;
     if (perf.time < 4000) return;
     const fps = (perf.frames * 1000) / perf.time;
-    perf.checked = true;
-    if (fps >= 28 || !ssaoPipeline) return;
-    scene.postProcessRenderPipelineManager.detachCamerasFromRenderPipeline(ssaoPipeline.name, camera);
-    ssaoPipeline = null;
-    console.info(`[desempenho] ${fps.toFixed(0)} FPS com SSAO: oclusão de ambiente desligada.`);
+    perf.frames = 0;
+    perf.time = 0;
+    if (fps >= 28) {
+      perf.checked = true;
+      return;
+    }
+    const sg = ctx.shadows;
+    if (ssaoPipeline) {
+      scene.postProcessRenderPipelineManager.detachCamerasFromRenderPipeline(ssaoPipeline.name, camera);
+      ssaoPipeline = null;
+      console.info(`[desempenho] ${fps.toFixed(0)} FPS: SSAO desligado.`);
+    } else if (sg && perf.step === 0) {
+      perf.step = 1;
+      sg.filteringQuality = ShadowGenerator.QUALITY_LOW;
+      sg.getShadowMap()?.resize(512);
+      console.info(`[desempenho] ${fps.toFixed(0)} FPS: sombras simplificadas.`);
+    } else if (sg && perf.step === 1) {
+      perf.step = 2;
+      scene.shadowsEnabled = false; // a sombra de contato sob o equipamento continua
+      console.info(`[desempenho] ${fps.toFixed(0)} FPS: sombras dinâmicas desligadas.`);
+    } else {
+      perf.checked = true;
+      return;
+    }
     ui.toast("Qualidade gráfica ajustada para manter a fluidez", "info");
   }
 

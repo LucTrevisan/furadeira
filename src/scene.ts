@@ -200,9 +200,9 @@ export function createScene(engine: Engine, canvas: HTMLCanvasElement): SceneCon
   // ---- Sombras (estáticas no VR; ver main.ts) ----------------------------
   let shadows: ShadowGenerator | null = null;
   if (VISUAL.shadows) {
-    shadows = new ShadowGenerator(2048, sun);
+    shadows = new ShadowGenerator(1024, sun); // 1024 + PCF médio: bom equilíbrio custo × qualidade
     shadows.usePercentageCloserFiltering = true;
-    shadows.filteringQuality = ShadowGenerator.QUALITY_HIGH;
+    shadows.filteringQuality = ShadowGenerator.QUALITY_MEDIUM;
     shadows.bias = 0.0006;
     shadows.normalBias = 0.0025;
     shadows.setDarkness(0.22);
@@ -222,7 +222,7 @@ export function setupDesktopPostProcess(scene: Scene, camera: ArcRotateCamera, m
   const engine = scene.getEngine() as Engine;
   try {
     const pipe = new DefaultRenderingPipeline("pos_desktop", true, scene, [camera]);
-    pipe.samples = engine.webGLVersion >= 2 ? 4 : 1;
+    pipe.samples = 1; // MSAA 4x custava ~60% do quadro; o FXAA já suaviza as bordas
     pipe.fxaaEnabled = true;
     pipe.sharpenEnabled = true;
     pipe.sharpen.edgeAmount = 0.15;

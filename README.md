@@ -206,9 +206,14 @@ fisicamente exata, marque "Velocidade visual real (1:1)" no painel ou use
 * **Câmera:** vista inicial 3/4, botão ⌂ Centralizar (tecla H), limites de
   zoom e de deslocamento. Ajustes em `CAMERA_VIEW` (`src/config.ts`).
 * **Visual:** materiais por tipo de peça (`src/materials.ts`), laboratório
-  procedural, iluminação key/fill/rim + IBL, SSAO e antisserrilhamento só no
-  desktop. Se o FPS cair abaixo de ~28, o SSAO é desligado automaticamente.
-  Opções em `VISUAL` (`ssao`, `enhanceMaterials`, `splash`, `explodeLabels`).
+  procedural, iluminação key/fill/rim + IBL, antisserrilhamento (FXAA) e sombra
+  de contato. SSAO desligado por padrão (`VISUAL.ssao`; custava ~90% do quadro).
+  Se o FPS cair abaixo de ~28, a página simplifica sozinha: sombras leves e,
+  se preciso, só a sombra de contato.
+* **Vibração:** o modelo só vibra com dados reais do acelerômetro (MPU6050).
+  A vibração simulada pelo motor está desligada (`VISUAL.vibration.enabled`).
+* **Conexão ESP32:** selo no header (desconectado / aguardando / conectado) e
+  card "Conexão ESP32" logo abaixo do status da máquina.
 * A tela de apresentação aparece uma vez por sessão; `?nosplash` a desativa.
 
 ### Girar à mão (manivela)

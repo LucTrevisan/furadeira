@@ -214,7 +214,12 @@ export const VISUAL = {
   antiStrobeFactor: 0.15,
   antiStrobeEnabledByDefault: true,
   vibration: {
-    enabled: true,
+    /**
+     * Vibração SIMULADA pelo motor (proporcional ao RPM). Desligada: o modelo
+     * só vibra com dados reais do acelerômetro (MPU6050, ver IOT). true = volta
+     * o efeito simulado.
+     */
+    enabled: false,
     /** Amplitude máxima em metros a 3000 RPM (0,25 mm). */
     amplitude: 0.00025,
     /** Multiplicador da amplitude dentro do VR (menor = mais confortável). */
@@ -228,8 +233,10 @@ export const VISUAL = {
   /**
    * Pós-processamento SOMENTE no desktop (a câmera do VR é outra e não o
    * recebe): oclusão de ambiente (SSAO2), antisserrilhamento e tone mapping.
+   * SSAO desligado por padrão: custava ~90% do tempo de cada quadro. A sombra
+   * de contato sob o equipamento continua. true = religa (máquinas potentes).
    */
-  ssao: true,
+  ssao: false,
   /** Melhora a apresentação dos materiais do CAD (ver materials.ts). */
   enhanceMaterials: true,
   /** Tela de apresentação ao abrir (uma vez por sessão; ?nosplash a desativa). */
