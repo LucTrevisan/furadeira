@@ -218,6 +218,8 @@ struct AppState {  // estado CONFIRMADO pela aplicação (fonte da verdade)
 bool wifiUp = false;
 bool apMode = false;
 uint8_t wsClients = 0;      // aplicações conectadas pelo WebSocket local
+const uint8_t WS_MAX_APP_CLIENTS = 3;  // acima disso, a conexão mais antiga é desconectada
+uint32_t clientSince[WEBSOCKETS_SERVER_CLIENT_MAX] = {0};
 bool mqttAppAlive = false;  // aplicação ativa pelo MQTT (batimento a cada 5 s)
 inline bool appConnected() { return wsClients > 0 || mqttAppAlive; }
 
@@ -987,12 +989,28 @@ void processAppMessage(const uint8_t* payload, size_t length, int8_t num) {
 
 void handleWebSocketEvent(uint8_t num, WStype_t type, uint8_t* payload, size_t length) {
   switch (type) {
-    case WStype_CONNECTED:
+    case WStype_CONNECTED: {
       wsClients++;
-      DBG("[ESP32] aplicação conectada (#%u, %s)\n", num, ws.remoteIP(num).toString().c_str());
+      clientSince[num] = millis();
+      DBG("[ESP32] aplicação conectada (#%u, %s) · clientes: %u\n", num, ws.remoteIP(num).toString().c_str(), wsClients);
+      // O servidor só tem WEBSOCKETS_SERVER_CLIENT_MAX vagas; conexões antigas
+      // (abas fechadas, recargas da página) podem ocupá-las e a página passa a
+      // ser recusada. A conexão MAIS NOVA sempre fica: a mais antiga sai.
+      if (wsClients > WS_MAX_APP_CLIENTS) {
+        int8_t oldest = -1;
+        for (uint8_t i = 0; i < WEBSOCKETS_SERVER_CLIENT_MAX; i++) {
+          if (i == num || !ws.clientIsConnected(i)) continue;
+          if (oldest < 0 || (int32_t)(clientSince[i] - clientSince[oldest]) < 0) oldest = i;
+        }
+        if (oldest >= 0) {
+          DBG("[ESP32] liberando a conexão mais antiga (#%d)\n", oldest);
+          ws.disconnect(oldest);
+        }
+      }
       lcdShow("DIGITAL TWIN", "CONECTADO", P_MEDIUM, 2500);
       sendHello(num);
       break;
+    }
 
     case WStype_DISCONNECTED:
       if (wsClients) wsClients--;
@@ -1134,7 +1152,8 @@ void updateServo() {
 void setupWebSocket() {
   ws.begin();
   ws.onEvent(handleWebSocketEvent);
-  ws.enableHeartbeat(15000, 3000, 2);  // derruba clientes "fantasmas"
+  // Ping a cada 5 s; sem resposta em 2 s, o cliente "fantasma" sai (≈7 s).
+  ws.enableHeartbeat(5000, 2000, 1);
 }
 
 // ============================================================================
