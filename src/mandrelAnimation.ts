@@ -10,6 +10,7 @@ import {
   Scene,
   TransformNode,
   Vector3,
+  VertexBuffer,
 } from "@babylonjs/core";
 import { BIT, CHUCK, DRILL, GEAR_TRAIN, type RotatingGroupConfig } from "./config";
 import { rpmToRadPerSec } from "./drillController";
@@ -232,6 +233,47 @@ export class MandrelAnimation {
 
   get isReady(): boolean {
     return this.chuck !== null;
+  }
+
+  /**
+   * Ponto mais baixo (Y do mundo) que as peças girantes alcançam numa volta
+   * completa — ex.: o punho da manivela passando por baixo. Para cada grupo:
+   * raio = maior distância de um canto das peças ao eixo; numa volta, o ponto
+   * mais baixo do círculo fica R·√(1 − a_y²) abaixo do eixo.
+   */
+  lowestSweepY(): number | null {
+    let lowest: number | null = null;
+    for (const g of this.groups) {
+      refreshWorld(g.pivot);
+      const origin = g.pivot.getAbsolutePosition();
+      const parent = g.pivot.parent;
+      const axis = parent
+        ? Vector3.TransformNormal(g.axisLocal, parent.getWorldMatrix()).normalize()
+        : g.axisLocal.clone().normalize();
+      // Exato por vértice: cada ponto descreve seu próprio círculo em torno do
+      // eixo; o ponto mais baixo desse círculo é (y do centro) − r·√(1 − a_y²).
+      const k = Math.sqrt(Math.max(0, 1 - axis.y * axis.y));
+      let groupLowest = Infinity;
+      const v = new Vector3();
+      for (const m of g.pivot.getChildMeshes(false)) {
+        const pos = m.getVerticesData(VertexBuffer.PositionKind);
+        if (!pos || pos.length === 0) continue;
+        const world = m.computeWorldMatrix(true);
+        for (let i = 0; i < pos.length; i += 3) {
+          Vector3.TransformCoordinatesFromFloatsToRef(pos[i], pos[i + 1], pos[i + 2], world, v);
+          v.subtractInPlace(origin);
+          const t = Vector3.Dot(v, axis);
+          const dx = v.x - axis.x * t;
+          const dy = v.y - axis.y * t;
+          const dz = v.z - axis.z * t;
+          const r = Math.sqrt(dx * dx + dy * dy + dz * dz);
+          groupLowest = Math.min(groupLowest, origin.y + axis.y * t - r * k);
+        }
+      }
+      if (!Number.isFinite(groupLowest)) continue;
+      lowest = lowest === null ? groupLowest : Math.min(lowest, groupLowest);
+    }
+    return lowest;
   }
 
   /** Grupos girantes (pivô, peças e eixo), na ordem: mandril primeiro. */

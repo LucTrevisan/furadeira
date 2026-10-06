@@ -286,6 +286,18 @@ async function main(): Promise<void> {
           (HAND_DRIVE.enabled ? " · arraste a manivela para girar à mão" : ""),
       );
     }
+    // Ergue a furadeira para a manivela (e demais peças que giram) passar
+    // sem tocar na bancada, com folga SCENE.drillClearance.
+    {
+      const sweep = report.ok ? anim.lowestSweepY() : null;
+      const box = worldBoundsOf([placement.vibrationNode]);
+      if (box) {
+        const lowest = Math.min(box.min.y, sweep ?? box.min.y);
+        const lift = ctx.tableTopY + SCENE.drillClearance - lowest;
+        if (lift > 0) placement.setLift(lift);
+        console.info(`[posição] furadeira erguida ${(Math.max(0, lift) * 1000).toFixed(0)} mm (manivela livre)`);
+      }
+    }
     vibration = new VibrationEffect(placement.vibrationNode);
 
     // Sombras: apenas o modelo projeta sombra na bancada.

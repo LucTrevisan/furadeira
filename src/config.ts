@@ -267,6 +267,11 @@ export const SCENE = {
   xrStart: { x: 0, z: 0.05 },
   /** Distância da ponta do mandril aos olhos no modo "Aproximar" (VR). */
   inspectDistance: 0.32,
+  /**
+   * Folga (m) entre a bancada e o ponto mais baixo que as peças que giram
+   * alcançam (punho da manivela). A furadeira é erguida automaticamente.
+   */
+  drillClearance: 0.015,
 };
 
 /**

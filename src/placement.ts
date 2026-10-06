@@ -20,6 +20,8 @@ export class DrillPlacement {
   private homePosition = Vector3.Zero();
   private target: Vector3 | null = null;
   private inspecting = false;
+  /** Elevação extra sobre a bancada (para peças que giram não tocarem nela). */
+  private lift = 0;
 
   constructor(
     scene: Scene,
@@ -57,10 +59,25 @@ export class DrillPlacement {
     this.correctionNode.position.copyFrom(c.negate()); // origem = centro do modelo
     const halfHeight = (box.max.y - box.min.y) / 2;
 
-    this.homePosition = new Vector3(SCENE.drillPosition.x, this.tableTopY + halfHeight + 0.002, SCENE.drillPosition.z);
+    this.homePosition = new Vector3(SCENE.drillPosition.x, this.tableTopY + halfHeight + 0.002 + this.lift, SCENE.drillPosition.z);
     p.position.copyFrom(this.inspecting ? savedPos : this.homePosition);
     p.rotation.y = savedYaw;
     refreshWorld(p);
+  }
+
+  /**
+   * Eleva a furadeira em `dy` metros acima da posição apoiada (ex.: para a
+   * manivela girar sem tocar na bancada). Não altera a geometria.
+   */
+  setLift(dy: number): void {
+    const delta = dy - this.lift;
+    this.lift = dy;
+    this.homePosition.y += delta;
+    if (!this.inspecting) {
+      this.placementNode.position.y += delta;
+      if (this.target) this.target.y += delta;
+    }
+    refreshWorld(this.placementNode);
   }
 
   get size(): Vector3 {
