@@ -68,6 +68,7 @@
 #include <WiFiClientSecure.h>
 #include <ArduinoJson.h>
 #include <utility>
+#include <esp_system.h>
 
 // ============================================================ CONFIGURAÇÃO ===
 #define IOT_DEBUG 1  // 1 = log no Monitor Serial ([KY040], [MPU6050]…); 0 = silencioso
@@ -94,6 +95,11 @@ const char* AP_PASS = "furadeira123";
 const char* MDNS_NAME = "furadeira";      // → furadeira.local
 const uint16_t WS_PORT = 81;
 const uint32_t WIFI_TIMEOUT_MS = 15000;
+// Potência de transmissão do Wi-Fi. Menor = picos de corrente menores: evita
+// quedas de tensão (reinícios) em power bank/baterias e é uma correção
+// conhecida para placas ESP32-C3 pequenas. 15 dBm ainda cobre bem uma sala.
+// Se a placa não conectar longe do roteador, use WIFI_POWER_19_5dBm.
+const wifi_power_t WIFI_TX_POWER = WIFI_POWER_15dBm;
 
 // ---- MQTT ----
 // Broker padrão: shiftr.io público (usuário/senha "public"). Escolhido porque a
@@ -235,6 +241,7 @@ float distanceCm = -1;  // -1 = sem objeto / fora de alcance
 bool handExploded = false;
 
 void lcdShow(const char* l1, const char* l2, Prio p, uint32_t ms);
+void setupServo();
 void sendJson(const char* json);
 const char* vibLevelName(uint8_t lv, bool ascii);
 
@@ -247,6 +254,7 @@ void setupWiFi() {
   WiFi.mode(WIFI_STA);
   WiFi.setSleep(false);  // menor latência
   WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+  WiFi.setTxPower(WIFI_TX_POWER);
   wifiStartMs = millis();
   lcdShow("CONECTANDO", "WIFI...", P_NORMAL, WIFI_TIMEOUT_MS);
   DBG("[WIFI] conectando a \"%s\"\n", WIFI_SSID);
@@ -260,6 +268,7 @@ void handleWiFi() {
       wifiUp = true;
       DBG("[WIFI] conectado. IP %s\n", WiFi.localIP().toString().c_str());
       lcdShow("WIFI", "CONECTADO", P_NORMAL, 1500);
+      setupServo();  // depois do Wi-Fi: os dois picos de corrente não coincidem
     } else if (millis() - wifiStartMs > WIFI_TIMEOUT_MS) {
       WiFi.mode(WIFI_AP);
       WiFi.softAP(AP_SSID, AP_PASS);
@@ -267,6 +276,7 @@ void handleWiFi() {
       wifiUp = true;
       DBG("[WIFI] sem rede: ponto de acesso \"%s\" IP %s\n", AP_SSID, WiFi.softAPIP().toString().c_str());
       lcdShow("WIFI: MODO AP", "192.168.4.1", P_HIGH, 4000);
+      setupServo();
     }
   } else if (!apMode && WiFi.status() != WL_CONNECTED && wifiUp) {
     wifiUp = false;  // caiu: o driver reconecta sozinho
@@ -1089,6 +1099,7 @@ void servoWriteDeg(float deg) {
 
 void setupServo() {
 #if ENABLE_SERVO
+  if (servoOnline) return;  // já configurado (o Wi-Fi pode reconectar)
   servoOnline = ledcAttach(PIN_SERVO, 50, 14);
   if (servoOnline) {
     servoPos = SERVO_DEG_MIN;
@@ -1144,7 +1155,8 @@ void scanI2C() {
 
 void setup() {
   Serial.begin(115200);
-  delay(300);  // USB CDC do C3: dá tempo do Monitor Serial abrir
+  Serial.setTxTimeoutMs(0);  // sem cabo USB, a depuração nunca trava a placa
+  delay(300);                // USB CDC do C3: dá tempo do Monitor Serial abrir
   DBG("\n=== DIGITAL TWIN · furadeira · %s ===\n", ESP.getChipModel());
 
   Wire.begin(PIN_I2C_SDA, PIN_I2C_SCL);
@@ -1153,13 +1165,24 @@ void setup() {
   scanI2C();
 
   setupLCD();
+  // Sem cabo USB não há Monitor Serial: o LCD mostra por que a placa reiniciou.
+  esp_reset_reason_t why = esp_reset_reason();
+  const char* whyTxt = why == ESP_RST_BROWNOUT ? "ENERGIA FRACA"
+                       : why == ESP_RST_PANIC ? "ERRO FIRMWARE"
+                       : (why == ESP_RST_INT_WDT || why == ESP_RST_TASK_WDT || why == ESP_RST_WDT) ? "TRAVAMENTO"
+                                                                                                       : nullptr;
+  DBG("[BOOT] motivo do reinício: %d\n", (int)why);
+  if (whyTxt) {
+    lcdShow("REINICIO:", whyTxt, P_HIGH, 4000);
+    updateLCD();
+    delay(4000);  // só na partida, para dar tempo de ler
+  }
   lcdShow("DIGITAL TWIN", "INICIANDO...", P_NORMAL, 1200);
   updateLCD();
   setupEncoder();
   setupMPU6050();
   setupUltrasonic();
-  setupServo();
-  setupWiFi();
+  setupWiFi();  // o servo é ativado quando o Wi-Fi conectar
   setupWebSocket();
   setupMQTT();
 }
