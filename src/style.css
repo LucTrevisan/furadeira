@@ -61,6 +61,7 @@ html, body {
   margin: 0;
   height: 100%;
   overflow: hidden;
+  overflow: clip; /* aplicação em tela cheia: nada pode rolar a página (foco, scrollIntoView…) */
   background: var(--bg-main);
   color: var(--text-primary);
   font: 400 14px/1.45 var(--font);
@@ -85,6 +86,9 @@ button, input { font: inherit; color: inherit; }
    Layout principal: header compacto + viewport (protagonista) + painel
    ========================================================================== */
 .app {
+  position: fixed;
+  inset: 0;
+  overflow: hidden;
   display: grid;
   grid-template-rows: var(--header-h) minmax(0, 1fr);
   height: 100vh;
@@ -421,8 +425,10 @@ button, input { font: inherit; color: inherit; }
 
 /* Switches */
 .switches { display: grid; gap: var(--s2); }
-.switch { display: flex; align-items: center; gap: 10px; min-height: 32px; cursor: pointer; color: var(--text-secondary); font-size: 13px; }
-.switch input { position: absolute; opacity: 0; width: 1px; height: 1px; }
+/* position: relative mantém a caixa invisível DENTRO do rótulo: antes ela ficava
+   fora da tela e, ao clicar, o navegador rolava a página inteira para mostrá-la. */
+.switch { position: relative; display: flex; align-items: center; gap: 10px; min-height: 32px; cursor: pointer; color: var(--text-secondary); font-size: 13px; }
+.switch input { position: absolute; left: 0; top: 50%; opacity: 0; width: 1px; height: 1px; margin: 0; pointer-events: none; }
 .switch .track {
   position: relative; width: 34px; height: 20px; flex: none;
   border-radius: 99px; background: #2a323a; border: 1px solid var(--border-strong);
