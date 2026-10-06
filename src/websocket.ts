@@ -22,6 +22,7 @@ import type { WsStatus } from "./ui";
  *
  * ENVIADAS à placa (a aplicação é a fonte do estado; o LCD mostra o estado real):
  *   {"type":"hello"} ao conectar
+ *   {"type":"rpm","rpm":1234}  rotação real p/ o velocímetro físico (servo)
  *   {"type":"status","machine":"running"|"stopped","rpm":1500,"power":true,
  *    "direction":1,"exploded":false}   a cada mudança (confirmação)
  */
@@ -30,6 +31,7 @@ export interface IoTSensors {
   mpu6050: boolean;
   hcsr04: boolean;
   lcd: boolean;
+  servo: boolean;
 }
 
 export interface IoTTelemetry {
@@ -72,6 +74,8 @@ export class Esp32Link {
   /** Verdadeiro ao aplicar comando no formato ANTIGO: o firmware v1 adotava ecos. */
   private applyingLegacy = false;
   private exploded = false;
+  private lastLiveRpm = -1;
+  private lastLiveAt = 0;
 
   private readonly handlers: IoTHandlers;
 
@@ -145,6 +149,23 @@ export class Esp32Link {
     this.handlers.onStatus("disconnected");
   }
 
+  /**
+   * Rotação REAL (com a rampa) para o velocímetro físico (servo). Taxa limitada:
+   * envia quando muda ≥ 10 RPM (máx. ~12/s), ao chegar a zero, e 1×/s girando.
+   */
+  sendLiveRpm(rpm: number): void {
+    if (!this.peerOnline) return;
+    const r = Math.max(0, Math.min(3000, Math.round(rpm)));
+    const now = performance.now();
+    const toZero = r === 0 && this.lastLiveRpm !== 0;
+    const changed = Math.abs(r - this.lastLiveRpm) >= 10 && now - this.lastLiveAt >= 80;
+    const heartbeat = r > 0 && now - this.lastLiveAt > 1000;
+    if (!toZero && !changed && !heartbeat) return;
+    this.lastLiveRpm = r;
+    this.lastLiveAt = now;
+    this.send({ type: "rpm", rpm: r });
+  }
+
   /** Estado da vista explodida (para o LCD): enviado só quando muda. */
   setExploded(exploded: boolean): void {
     if (exploded === this.exploded) return;
@@ -216,6 +237,7 @@ export class Esp32Link {
     if (!notify || !this.target) return;
     if (online) {
       this.attempt = 0;
+      this.lastLiveRpm = -1; // reenvia a rotação atual ao (re)conectar
       log("[ESP32] online");
       this.handlers.onStatus("connected", describeTarget(this.target));
     } else {
@@ -397,7 +419,7 @@ const validRpm = (v: unknown): v is number => isNum(v) && v >= 0 && v <= 3000;
 function parseSensors(v: unknown): IoTSensors | null {
   if (!v || typeof v !== "object") return null;
   const s = v as Record<string, unknown>;
-  return { encoder: s.encoder === true, mpu6050: s.mpu6050 === true, hcsr04: s.hcsr04 === true, lcd: s.lcd === true };
+  return { encoder: s.encoder === true, mpu6050: s.mpu6050 === true, hcsr04: s.hcsr04 === true, lcd: s.lcd === true, servo: s.servo === true };
 }
 
 /**

@@ -11,6 +11,7 @@
      MPU6050  → vibração real (I2C)          → microvibração no gêmeo digital
      HC-SR04  → proximidade da mão           → vista explodida (< 30 mm) / monta (≥ 50 mm)
      LCD 16x2 I2C (PCF8574)                  ← feedback de status e interações
+     SERVO (SG90) no GPIO 10                 ← velocímetro físico: ponteiro 0–3000 RPM
 
    COMUNICAÇÃO — APRESENTAÇÃO: WebSocket local (MQTT_ENABLED 0).
    Disponíveis (a página usa a que estiver configurada):
@@ -36,7 +37,8 @@
      GPIO 5  ← KY-040 CLK
      GPIO 6  ← KY-040 DT
      GPIO 7  ← KY-040 SW          (pull-up interno)
-     GPIO 10    reservado (servo, uso futuro)
+     GPIO 10 → SERVO (sinal, fio laranja). Vermelho no 5V (NUNCA no 3V3), marrom no GND.
+               Picos de ~600 mA: capacitor de 470 µF entre 5V e GND evita reinícios.
      Livres: GPIO 2, 8, 9 (strapping: não puxar para GND no boot), 20, 21
      Não usar: GPIO 18/19 (USB)
 
@@ -75,6 +77,7 @@
 #define ENABLE_MPU6050 1
 #define ENABLE_HCSR04 1
 #define ENABLE_LCD 1
+#define ENABLE_SERVO 1
 
 // ---- Rede (mesma rede 2,4 GHz do PC / Meta Quest) ----
 // As credenciais ficam em "secrets.h" (mesma pasta do sketch, ignorado pelo
@@ -126,7 +129,7 @@ const int PIN_US_TRIG = 4;
 const int PIN_ENC_CLK = 5;
 const int PIN_ENC_DT = 6;
 const int PIN_ENC_SW = 7;
-const int PIN_SERVO = 10;   // reservado (servo, uso futuro): não utilizado ainda
+const int PIN_SERVO = 10;   // velocímetro físico (servo SG90)
 #else
 #error "Firmware configurado para o uPesy ESP32-C3 Mini. Para outra placa, defina os pinos aqui."
 #endif
@@ -172,6 +175,18 @@ const uint32_t LCD_TICK_MS = 100;
 const uint32_t LCD_ROTATE_MS = 3000;     // troca de tela de status
 const uint32_t LCD_RETRY_MS = 5000;      // tenta reencontrar o LCD
 
+// ---- Servo / velocímetro físico ----
+// O ponteiro mostra a ROTAÇÃO REAL da furadeira virtual (com a rampa de
+// aceleração), enviada pela aplicação. 0 RPM → SERVO_DEG_MIN, 3000 → SERVO_DEG_MAX.
+const uint16_t SERVO_US_MIN = 500;     // pulso a 0°   (SG90 típico: 500–2400 µs)
+const uint16_t SERVO_US_MAX = 2400;    // pulso a 180°
+const float SERVO_DEG_MIN = 0.0f;      // ângulo do ponteiro em 0 RPM
+const float SERVO_DEG_MAX = 180.0f;    // ângulo do ponteiro em 3000 RPM
+const bool SERVO_INVERT = false;       // true se o ponteiro andar ao contrário do mostrador
+const float SERVO_SLEW_DPS = 200.0f;   // velocidade máx. do ponteiro (°/s): movimento suave
+const uint32_t SERVO_TICK_MS = 20;     // atualização (50 Hz, igual ao período do servo)
+const uint32_t SERVO_IDLE_MS = 3000;   // sem notícias da app → ponteiro volta a zero
+
 // ================================================================ DEBUG ======
 #if IOT_DEBUG
 #define DBG(...) Serial.printf(__VA_ARGS__)
@@ -208,6 +223,9 @@ bool encoderOnline = ENABLE_ENCODER;
 bool mpuOnline = false;
 bool usOnline = false;
 bool lcdOnline = false;
+bool servoOnline = false;
+float liveRpm = 0;          // rotação real informada pela aplicação
+uint32_t liveRpmMs = 0;
 
 // Vibração (saída filtrada).
 float vibPct = 0, vibX = 0, vibY = 0, vibZ = 0, vibG = 0;
@@ -863,12 +881,12 @@ void sendJson(const char* json) {
 }
 
 void sendHello(int8_t num) {
-  char json[200];
+  char json[240];
   snprintf(json, sizeof(json),
            "{\"type\":\"hello\",\"device\":\"uPesy ESP32-C3 Mini\",\"fw\":\"2.0\",\"ip\":\"%s\","
-           "\"sensors\":{\"encoder\":%s,\"mpu6050\":%s,\"hcsr04\":%s,\"lcd\":%s}}",
+           "\"sensors\":{\"encoder\":%s,\"mpu6050\":%s,\"hcsr04\":%s,\"lcd\":%s,\"servo\":%s}}",
            localIp().c_str(), encoderOnline ? "true" : "false", mpuOnline ? "true" : "false",
-           usOnline ? "true" : "false", lcdOnline ? "true" : "false");
+           usOnline ? "true" : "false", lcdOnline ? "true" : "false", servoOnline ? "true" : "false");
   if (num >= 0) ws.sendTXT(num, json);
   else sendJson(json);  // MQTT (ou todos os clientes)
 }
@@ -898,14 +916,14 @@ void sendTelemetry() {
   char dist[16];
   if (distanceCm < 0 || !usOnline) strcpy(dist, "null");
   else snprintf(dist, sizeof(dist), "%.1f", distanceCm);
-  char json[320];
+  char json[360];
   snprintf(json, sizeof(json),
            "{\"type\":\"telemetry\",\"rpm\":%d,\"distance\":%s,"
            "\"vibration\":{\"x\":%.3f,\"y\":%.3f,\"z\":%.3f,\"magnitude\":%.3f,\"percent\":%.1f,\"level\":\"%s\"},"
-           "\"sensors\":{\"encoder\":%s,\"mpu6050\":%s,\"hcsr04\":%s,\"lcd\":%s}}",
+           "\"sensors\":{\"encoder\":%s,\"mpu6050\":%s,\"hcsr04\":%s,\"lcd\":%s,\"servo\":%s}}",
            rpmRequested, dist, vibX, vibY, vibZ, vibG, vibPct, vibLevel == 2 ? "high" : vibLevel == 1 ? "attention" : "normal",
            encoderOnline ? "true" : "false", mpuOnline ? "true" : "false", usOnline ? "true" : "false",
-           lcdOnline ? "true" : "false");
+           lcdOnline ? "true" : "false", servoOnline ? "true" : "false");
   sendJson(json);
 }
 
@@ -948,6 +966,13 @@ void processAppMessage(const uint8_t* payload, size_t length, int8_t num) {
   const char* t = doc["type"] | "";
   if (!strcmp(t, "hello")) sendHello(num);
   else if (!strcmp(t, "status") || !strcmp(t, "state")) applyAppStatus(doc);
+  else if (!strcmp(t, "rpm")) {  // rotação real (com rampa) → velocímetro físico
+    float r = doc["rpm"] | -1.0f;
+    if (r >= 0 && r <= RPM_MAX) {
+      liveRpm = r;
+      liveRpmMs = millis();
+    }
+  }
 }
 
 void handleWebSocketEvent(uint8_t num, WStype_t type, uint8_t* payload, size_t length) {
@@ -1050,6 +1075,51 @@ void handleMQTT() {
 #endif
 }
 
+// ============================================================================
+//                         SERVO — velocímetro físico
+// ============================================================================
+float servoPos = -1;  // ângulo atual do ponteiro (−1 = ainda não posicionado)
+
+void servoWriteDeg(float deg) {
+  float d = SERVO_INVERT ? 180.0f - deg : deg;
+  float us = SERVO_US_MIN + (SERVO_US_MAX - SERVO_US_MIN) * (d / 180.0f);
+  uint32_t duty = (uint32_t)(us / 20000.0f * 16383.0f);  // período de 20 ms, 14 bits
+  ledcWrite(PIN_SERVO, duty);
+}
+
+void setupServo() {
+#if ENABLE_SERVO
+  servoOnline = ledcAttach(PIN_SERVO, 50, 14);
+  if (servoOnline) {
+    servoPos = SERVO_DEG_MIN;
+    servoWriteDeg(servoPos);
+    DBG("[SERVO] pronto no GPIO %d\n", PIN_SERVO);
+  } else {
+    DBG("[SERVO] falha ao configurar o GPIO %d\n", PIN_SERVO);
+  }
+#endif
+}
+
+/** Move o ponteiro em direção à rotação real, com velocidade limitada. */
+void updateServo() {
+#if ENABLE_SERVO
+  static uint32_t last = 0;
+  uint32_t now = millis();
+  if (!servoOnline || now - last < SERVO_TICK_MS) return;
+  float dt = (now - last) / 1000.0f;
+  last = now;
+  // Sem aplicação (ou sem notícias) o ponteiro volta suavemente a zero.
+  float rpm = (appConnected() && now - liveRpmMs < SERVO_IDLE_MS) ? liveRpm : 0;
+  float target = SERVO_DEG_MIN + (SERVO_DEG_MAX - SERVO_DEG_MIN) * constrain(rpm / RPM_MAX, 0.0f, 1.0f);
+  float step = SERVO_SLEW_DPS * fminf(dt, 0.1f);
+  float next = servoPos + constrain(target - servoPos, -step, step);
+  if (fabsf(next - servoPos) >= 0.3f) {  // evita "zumbido" com micro-ajustes
+    servoPos = next;
+    servoWriteDeg(servoPos);
+  }
+#endif
+}
+
 void setupWebSocket() {
   ws.begin();
   ws.onEvent(handleWebSocketEvent);
@@ -1088,6 +1158,7 @@ void setup() {
   setupEncoder();
   setupMPU6050();
   setupUltrasonic();
+  setupServo();
   setupWiFi();
   setupWebSocket();
   setupMQTT();
@@ -1101,6 +1172,7 @@ void loop() {
   readButton();
   readMPU6050();
   readUltrasonic();
+  updateServo();
   sendTelemetry();
   updateLCD();
 }

@@ -410,6 +410,7 @@ export class ControlPanelUI {
       mpu6050: connected && (sensors?.mpu6050 ?? false),
       hcsr04: connected && (sensors?.hcsr04 ?? false),
       lcd: connected && (sensors?.lcd ?? false),
+      servo: connected && (sensors?.servo ?? false),
     };
     for (const li of document.querySelectorAll<HTMLLIElement>("#iotSensors li")) {
       const on = states[li.dataset.k ?? ""];

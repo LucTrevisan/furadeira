@@ -24,6 +24,23 @@ broker.
 5. **Encoder** → muda a rotação. **Mão a menos de 30 mm** do HC-SR04 → vista
    explodida; afastar para **50 mm ou mais** → monta.
 
+### Servo SG90 — velocímetro físico (GPIO 10)
+
+O ponteiro mostra a **rotação real** da furadeira virtual (com a rampa de
+aceleração e desaceleração; também acompanha a manivela girada à mão).
+0 RPM = 0°, 3000 RPM = 180°. Sem a aplicação, volta devagar a zero.
+
+| Fio do servo | Liga em |
+|---|---|
+| Laranja (sinal) | **GPIO 10** |
+| Vermelho | **5V** (nunca no 3V3) |
+| Marrom | **GND** |
+
+Picos de ~600 mA: um capacitor de 470 µF entre 5V e GND evita que a placa
+reinicie. **Calibração** no início do sketch: `SERVO_US_MIN/MAX` (curso do
+servo), `SERVO_DEG_MIN/MAX` (onde ficam 0 e 3000 RPM no mostrador),
+`SERVO_INVERT` (se andar ao contrário) e `SERVO_SLEW_DPS` (suavidade).
+
 Para voltar ao MQTT: `MQTT_ENABLED 1` no sketch e, na página, Conexão ESP32 →
 Configurar conexão → MQTT.
 

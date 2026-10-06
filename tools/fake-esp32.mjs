@@ -119,7 +119,7 @@ const broadcastObj = (obj) => {
   clients.forEach((c) => send(c, obj));
   mqPublish(obj);
 };
-const SENSORS = { encoder: true, mpu6050: true, hcsr04: true, lcd: true };
+const SENSORS = { encoder: true, mpu6050: true, hcsr04: true, lcd: true, servo: true };
 const hello = (sock) => send(sock, { type: "hello", device: "ESP32 simulado", fw: "2.0-sim", sensors: SENSORS });
 
 function onText(sock, text) {

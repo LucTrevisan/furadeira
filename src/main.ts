@@ -237,6 +237,7 @@ async function main(): Promise<void> {
       uiAccum = 0;
       ui.tick(drill.currentRPM);
       if (inXR) vrPanel?.tick(drill.currentRPM);
+      link?.sendLiveRpm(drill.currentRPM); // velocímetro físico (servo)
       if (iot.dirty) {
         iot.dirty = false;
         ui.setIoT(iot.connected, iot.telemetry, iot.sensors, iot.device);
