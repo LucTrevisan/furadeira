@@ -51,13 +51,16 @@ export interface IoTHandlers {
   /** Telemetria nova; null ao desconectar (volta ao MODO NORMAL). */
   onTelemetry: (t: IoTTelemetry | null) => void;
   onHello: (info: { device: string; sensors: IoTSensors | null }) => void;
+  /** Forma de onda do acelerômetro: amostras [x,y,z] em g, a cada dtMs. */
+  onOsc?: (samples: number[][], dtMs: number) => void;
 }
 
 type Parsed =
   | { kind: "command"; cmd: RemoteCommand; legacy: boolean }
   | { kind: "explode"; exploded: boolean }
   | { kind: "telemetry"; t: IoTTelemetry }
-  | { kind: "hello"; device: string; sensors: IoTSensors | null };
+  | { kind: "hello"; device: string; sensors: IoTSensors | null }
+  | { kind: "osc"; samples: number[][]; dtMs: number };
 
 const log = (...a: unknown[]): void => {
   if (IOT.debug) console.log(...a);
@@ -96,6 +99,7 @@ export class Esp32Link {
       onExplode: safe("onExplode", handlers.onExplode),
       onTelemetry: safe("onTelemetry", handlers.onTelemetry),
       onHello: safe("onHello", handlers.onHello),
+      onOsc: handlers.onOsc ? safe("onOsc", handlers.onOsc) : undefined,
     };
     // Toda mudança de estado é confirmada ao ESP32 (LCD mostra o estado real).
     drill.onChange(() => {
@@ -206,6 +210,9 @@ export class Esp32Link {
       case "telemetry":
         log(`[MPU6050] vibração: ${m.t.vibrationPercent.toFixed(0)}% · [HC-SR04] distância: ${m.t.distance ?? "--"} cm`);
         this.handlers.onTelemetry(m.t);
+        break;
+      case "osc":
+        this.handlers.onOsc?.(m.samples, m.dtMs);
         break;
       case "hello":
         log("[ESP32] conectado:", m.device, m.sensors);
@@ -442,6 +449,18 @@ export function parseMessage(raw: string): Parsed | null {
   }
 
   switch (d.type) {
+    case "osc": {
+      // {"type":"osc","dt":10,"a":[[x,y,z],…]} em mili-g (zona morta já aplicada).
+      const dtMs = isNum(d.dt) && d.dt >= 1 && d.dt <= 100 ? d.dt : 10;
+      if (!Array.isArray(d.a) || d.a.length === 0 || d.a.length > 32) return null;
+      const samples: number[][] = [];
+      for (const s of d.a) {
+        if (!Array.isArray(s) || s.length !== 3 || !s.every(isNum)) return null;
+        samples.push((s as number[]).map((v) => Math.max(-4, Math.min(4, v / 1000))));
+      }
+      return { kind: "osc", samples, dtMs };
+    }
+
     case "hello":
       return { kind: "hello", device: typeof d.device === "string" ? d.device.slice(0, 60) : "ESP32", sensors: parseSensors(d.sensors) };
 

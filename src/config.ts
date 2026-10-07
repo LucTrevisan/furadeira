@@ -384,4 +384,21 @@ export const IOT = {
   vibrationSmoothing: 0.12,
   /** Faixas (%) usadas se o ESP32 não informar o nível. Calibráveis. */
   levels: { attention: 30, high: 70 },
+  /**
+   * Forma de onda REAL do acelerômetro (mensagens "osc", 100 Hz): o modelo
+   * oscila exatamente como o sensor. Deslocamento = aceleração (g) × ganho.
+   */
+  osc: {
+    /** Metros de deslocamento por g de aceleração (0,35 g → ~2 mm). */
+    gainMetersPerG: 0.006,
+    /** Deslocamento máximo (m), em qualquer eixo. */
+    maxOffset: 0.004,
+    /**
+     * Eixo do SENSOR que move cada eixo do MODELO (sinal inverte o sentido).
+     * Padrão: MPU6050 deitado (Z do sensor para cima) → Y do modelo.
+     */
+    axes: { x: "+x", y: "+z", z: "+y" } as Record<"x" | "y" | "z", string>,
+    /** Amostras acumuladas antes de começar a tocar (absorve o atraso da rede). */
+    prebuffer: 6,
+  },
 };

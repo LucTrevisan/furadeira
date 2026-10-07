@@ -163,6 +163,12 @@ const float VIB_ATTENTION_PCT = 30.0f; // NORMAL ≤ 30 % < ATENÇÃO ≤ 70 % <
 const float VIB_HIGH_PCT = 70.0f;
 const float VIB_HYST_PCT = 5.0f;       // histerese entre faixas
 const uint16_t MPU_CALIB_SAMPLES = 150;
+// Forma de onda real (eixos X/Y/Z, gravidade removida) para o modelo 3D
+// oscilar EXATAMENTE como o sensor. Lotes de OSC_BATCH amostras (100 Hz);
+// só é enviada enquanto houver vibração acima da zona morta.
+#define OSC_STREAM 1
+const uint8_t OSC_BATCH = 4;           // 4 amostras = 40 ms por mensagem (25 msg/s)
+const uint32_t OSC_HOLD_MS = 300;      // continua enviando este tempo após parar de vibrar
 
 // ---- HC-SR04 / proximidade ----
 const uint32_t US_PERIOD_MS = 100;       // 10 Hz
@@ -192,6 +198,11 @@ const bool SERVO_INVERT = false;       // true se o ponteiro andar ao contrário
 const float SERVO_SLEW_DPS = 200.0f;   // velocidade máx. do ponteiro (°/s): movimento suave
 const uint32_t SERVO_TICK_MS = 20;     // atualização (50 Hz, igual ao período do servo)
 const uint32_t SERVO_IDLE_MS = 3000;   // sem notícias da app → ponteiro volta a zero
+// Fim de curso (0° ou 180°): após chegar e assentar, o PWM é desligado (detach).
+// O servo para de "forçar" contra o batente (sem zumbido, sem aquecer, menos
+// consumo). Volta a ser ligado assim que o alvo sai do fim de curso.
+const uint32_t SERVO_SETTLE_MS = 400;  // tempo de pulso no batente antes de soltar
+const float SERVO_END_EPS = 0.5f;      // tolerância (°) para considerar "no fim de curso"
 
 // ================================================================ DEBUG ======
 #if IOT_DEBUG
@@ -646,6 +657,44 @@ struct VibState {
 };
 VibState vib;
 
+// ---- Forma de onda para o gêmeo digital ----------------------------------------
+int16_t oscBuf[OSC_BATCH][3];  // mili-g (sem ruído: zona morta já aplicada)
+uint8_t oscN = 0;
+uint32_t oscActiveMs = 0;
+bool oscWasActive = false;
+void sendJson(const char* json);
+
+/** Zona morta por eixo: abaixo do ruído = 0 (sensor parado → modelo parado). */
+inline int16_t oscClean(float d, float dead) {
+  float m = fabsf(d) - dead;
+  if (m <= 0) return 0;
+  return (int16_t)constrain(lroundf(copysignf(m, d) * 1000.0f), -2000, 2000);
+}
+
+void oscPush(float dx, float dy, float dz, float dead) {
+  int16_t x = oscClean(dx, dead), y = oscClean(dy, dead), z = oscClean(dz, dead);
+  uint32_t now = millis();
+  if (x || y || z) oscActiveMs = now;
+  bool active = now - oscActiveMs < OSC_HOLD_MS;
+  if (!active && !oscWasActive) {  // parado: nada a enviar
+    oscN = 0;
+    return;
+  }
+  oscBuf[oscN][0] = x;
+  oscBuf[oscN][1] = y;
+  oscBuf[oscN][2] = z;
+  if (++oscN < OSC_BATCH) return;
+  oscN = 0;
+  oscWasActive = active;  // o último lote (já em zero) "pousa" o modelo
+  if (!appConnected()) return;
+  char json[160];
+  int n = snprintf(json, sizeof(json), "{\"type\":\"osc\",\"dt\":%u,\"a\":[", (unsigned)MPU_SAMPLE_MS);
+  for (uint8_t i = 0; i < OSC_BATCH; i++)
+    n += snprintf(json + n, sizeof(json) - n, "%s[%d,%d,%d]", i ? "," : "", oscBuf[i][0], oscBuf[i][1], oscBuf[i][2]);
+  snprintf(json + n, sizeof(json) - n, "]}");
+  sendJson(json);
+}
+
 void setupMPU6050() {
 #if ENABLE_MPU6050
   mpuOnline = mpuInit();
@@ -731,6 +780,9 @@ void readMPU6050() {
   vib.ez += (dz * dz - vib.ez) * kE;
 
   float dead = fmaxf(VIB_DEADZONE_G, vib.noise * 2.5f);
+#if OSC_STREAM
+  oscPush(dx, dy, dz, dead);
+#endif
   auto clean = [&](float e) { return fmaxf(0, sqrtf(e) - dead); };
   float rx = clean(vib.ex), ry = clean(vib.ey), rz = clean(vib.ez);
   float mag = sqrtf(rx * rx + ry * ry + rz * rz);
@@ -1106,7 +1158,31 @@ void handleMQTT() {
 // ============================================================================
 //                         SERVO — velocímetro físico
 // ============================================================================
-float servoPos = -1;  // ângulo atual do ponteiro (−1 = ainda não posicionado)
+float servoPos = -1;         // ângulo atual do ponteiro (−1 = ainda não posicionado)
+bool servoAttached = false;  // PWM ligado no pino (false = solto no fim de curso)
+uint32_t servoEndSince = 0;  // quando chegou ao fim de curso (0 = fora dele)
+
+bool servoAtEnd(float deg) {
+  return deg <= 0.0f + SERVO_END_EPS || deg >= 180.0f - SERVO_END_EPS;
+}
+
+/** Desliga o PWM: o servo deixa de segurar a posição (sem esforço no batente). */
+void servoRelease() {
+  if (!servoAttached) return;
+  ledcDetach(PIN_SERVO);
+  pinMode(PIN_SERVO, OUTPUT);
+  digitalWrite(PIN_SERVO, LOW);  // linha de sinal em nível baixo = sem pulsos
+  servoAttached = false;
+  DBG("[SERVO] fim de curso (%.0f°): PWM desligado\n", servoPos);
+}
+
+/** Religa o PWM (antes de qualquer movimento). */
+bool servoEngage() {
+  if (servoAttached) return true;
+  servoAttached = ledcAttach(PIN_SERVO, 50, 14);
+  if (servoAttached) DBG("[SERVO] PWM religado\n");
+  return servoAttached;
+}
 
 void servoWriteDeg(float deg) {
   float d = SERVO_INVERT ? 180.0f - deg : deg;
@@ -1118,8 +1194,9 @@ void servoWriteDeg(float deg) {
 void setupServo() {
 #if ENABLE_SERVO
   if (servoOnline) return;  // já configurado (o Wi-Fi pode reconectar)
-  servoOnline = ledcAttach(PIN_SERVO, 50, 14);
+  servoOnline = servoEngage();
   if (servoOnline) {
+    servoEndSince = millis();  // começa no 0°: solta após assentar
     servoPos = SERVO_DEG_MIN;
     servoWriteDeg(servoPos);
     DBG("[SERVO] pronto no GPIO %d\n", PIN_SERVO);
@@ -1142,10 +1219,20 @@ void updateServo() {
   float target = SERVO_DEG_MIN + (SERVO_DEG_MAX - SERVO_DEG_MIN) * constrain(rpm / RPM_MAX, 0.0f, 1.0f);
   float step = SERVO_SLEW_DPS * fminf(dt, 0.1f);
   float next = servoPos + constrain(target - servoPos, -step, step);
-  if (fabsf(next - servoPos) >= 0.3f) {  // evita "zumbido" com micro-ajustes
-    servoPos = next;
-    servoWriteDeg(servoPos);
+  bool moving = fabsf(next - servoPos) >= 0.3f;  // evita "zumbido" com micro-ajustes
+
+  // Parado no fim de curso (0° ou 180°): assenta e então solta o PWM.
+  if (!moving && servoAtEnd(servoPos) && fabsf(target - servoPos) < SERVO_END_EPS) {
+    if (!servoEndSince) servoEndSince = now;
+    if (servoAttached && now - servoEndSince >= SERVO_SETTLE_MS) servoRelease();
+    return;
   }
+  servoEndSince = 0;
+  if (!moving) return;
+  if (!servoEngage()) return;  // religa ao sair do fim de curso
+  servoPos = next;
+  servoWriteDeg(servoPos);
+  if (servoAtEnd(servoPos)) servoEndSince = now;  // acabou de chegar: conta o assentamento
 #endif
 }
 

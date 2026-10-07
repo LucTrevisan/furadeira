@@ -54,6 +54,43 @@ async function main(): Promise<void> {
   let triggerHeld = false;
   let inspector: ComponentInspector | null = null;
   let pendingExplode: boolean | null = null;
+  // Reprodução da forma de onda do acelerômetro (amostras em g, 100 Hz).
+  const osc = { queue: [] as number[][], periodMs: 10, acc: 0, playing: false, lastRx: 0, target: Vector3.Zero(), cur: Vector3.Zero() };
+  const oscActive = (): boolean => performance.now() - osc.lastRx < 400 || osc.cur.lengthSquared() > 1e-12;
+  /** Eixo do sensor → eixo do modelo (IOT.osc.axes), em metros. */
+  const oscToOffset = (s: number[], out: Vector3): void => {
+    const pick = (spec: string): number => {
+      const i = { x: 0, y: 1, z: 2 }[spec.slice(-1) as "x" | "y" | "z"] ?? 0;
+      return (spec.startsWith("-") ? -1 : 1) * s[i];
+    };
+    const g = IOT.osc.gainMetersPerG;
+    const m = IOT.osc.maxOffset;
+    const c = (v: number): number => Math.max(-m, Math.min(m, v * g));
+    out.set(c(pick(IOT.osc.axes.x)), c(pick(IOT.osc.axes.y)), c(pick(IOT.osc.axes.z)));
+  };
+  /**
+   * Toca a fila no ritmo REAL das amostras (independe dos FPS): após um
+   * pequeno buffer inicial, consome periodMs de amostra a cada periodMs de tempo.
+   * Sem dados novos, o modelo volta suavemente à posição original.
+   */
+  const playOsc = (dt: number, scale: number, outPos: Vector3): void => {
+    if (!osc.playing && osc.queue.length >= IOT.osc.prebuffer) osc.playing = true;
+    if (osc.playing) {
+      osc.acc += dt * 1000;
+      while (osc.acc >= osc.periodMs && osc.queue.length) {
+        oscToOffset(osc.queue.shift()!, osc.target);
+        osc.acc -= osc.periodMs;
+      }
+      if (!osc.queue.length) {
+        osc.playing = false;
+        osc.acc = 0;
+      }
+    }
+    if (performance.now() - osc.lastRx > 400) osc.target.setAll(0);
+    Vector3.LerpToRef(osc.cur, osc.target, Math.min(1, dt * 60 * 0.7), osc.cur);
+    if (osc.cur.lengthSquared() < 1e-12) osc.cur.setAll(0);
+    outPos.copyFrom(osc.cur).scaleInPlace(scale);
+  };
   let ssaoPipeline: import("@babylonjs/core").SSAO2RenderingPipeline | null = null;
   // Desempenho: se o desktop não sustentar ~30 FPS com SSAO, ele é desligado.
   const perf = { frames: 0, time: 0, checked: false, step: 0 };
@@ -142,6 +179,14 @@ async function main(): Promise<void> {
       iot.dirty = true;
       requestRender(2);
     },
+    // MPU6050: forma de onda real → fila de reprodução (tocada no render loop).
+    onOsc: (samples, dtMs) => {
+      osc.periodMs = dtMs;
+      osc.queue.push(...samples);
+      if (osc.queue.length > 40) osc.queue.splice(0, osc.queue.length - 12); // atraso grande: alcança o tempo real
+      osc.lastRx = performance.now();
+      requestRender(2);
+    },
     onHello: (h) => {
       iot.device = h.device;
       iot.sensors = h.sensors;
@@ -218,8 +263,19 @@ async function main(): Promise<void> {
     // sobre a posição original do nó: nunca há deriva pela cena.
     iot.vib += (iot.vibTarget - iot.vib) * (1 - Math.exp(-dt / IOT.vibrationSmoothing));
     if (iot.vib < 0.002 && iot.vibTarget === 0) iot.vib = 0;
-    const physAmp = IOT.vibrationAmplitude * iot.vib * xrK;
-    vibration?.update(dt, 1, amp * (drill.currentRPM / DRILL.maxRPM) + physAmp);
+    if (oscActive() && placement) {
+      // Forma de onda REAL: o modelo repete a oscilação medida pelo sensor.
+      playOsc(dt, xrK, placement.vibrationNode.position);
+    } else {
+      // Vibração terminou: descarta sobras da fila (não tocam atrasadas depois).
+      if (osc.queue.length) {
+        osc.queue.length = 0;
+        osc.playing = false;
+        osc.acc = 0;
+      }
+      const physAmp = IOT.vibrationAmplitude * iot.vib * xrK;
+      vibration?.update(dt, 1, amp * (drill.currentRPM / DRILL.maxRPM) + physAmp);
+    }
 
     if (tween) {
       tween.t = Math.min(1, tween.t + dt / 0.6);
@@ -245,7 +301,7 @@ async function main(): Promise<void> {
     }
 
     const busy =
-      inXR || drill.isMoving || iot.vib > 0 || !!handDrive?.isGrabbing || !!placement?.isAnimating || !!explode?.isAnimating || tween !== null || cameraMoving() || scene.getWaitingItemsCount() > 0;
+      inXR || drill.isMoving || iot.vib > 0 || oscActive() || !!handDrive?.isGrabbing || !!placement?.isAnimating || !!explode?.isAnimating || tween !== null || cameraMoving() || scene.getWaitingItemsCount() > 0;
     if (wasBusy && !busy) requestRender(2); // um último quadro em repouso
     wasBusy = busy;
     if (busy || renderBudget > 0) {
@@ -712,6 +768,9 @@ async function main(): Promise<void> {
   function exposeConsoleHelpers(): void {
     const helpers = {
       controller: drill,
+      get osc() {
+        return osc;
+      },
       get handDrive() {
         return handDrive;
       },
