@@ -1,4 +1,5 @@
 import {
+  AbstractMesh,
   ArcRotateCamera,
   Color3,
   Color4,
@@ -11,6 +12,8 @@ import {
   Mesh,
   MeshBuilder,
   PBRMaterial,
+  ReflectionProbe,
+  RenderTargetTexture,
   Scene,
   ShadowGenerator,
   SSAO2RenderingPipeline,
@@ -92,13 +95,6 @@ export function createScene(engine: Engine, canvas: HTMLCanvasElement): SceneCon
   rim.intensity = 1.1;
   rim.diffuse = new Color3(1, 0.93, 0.85);
 
-  // Reflexos (IBL): sem ambiente, metais PBR ficam pretos.
-  try {
-    scene.createDefaultEnvironment({ createSkybox: false, createGround: false });
-    scene.environmentIntensity = 0.75;
-  } catch (e) {
-    console.warn("[cena] Ambiente IBL indisponível; metais podem parecer escuros.", e);
-  }
 
   // ---- Sala: laboratório de usinagem (paredes, máquinas, sinalização) ----
   // VISUAL.labRoom = false volta ao fundo grafite neutro de "estúdio".
@@ -203,6 +199,15 @@ export function createScene(engine: Engine, canvas: HTMLCanvasElement): SceneCon
   frame.material = frameMat;
   frame.receiveShadows = true;
 
+  // Reflexos (IBL) gerados da PRÓPRIA sala — sem baixar nada da internet
+  // (assets.babylonjs.com é bloqueado em algumas redes e travava o carregamento).
+  setupRoomReflections(scene, new Vector3(dx, tableTopY + 0.6, dz), [
+    ...scene.meshes.filter((m) => m.name.startsWith("lab_") || m.name.startsWith("parede_") || m.name === "teto"),
+    ...(room ? [room] : []),
+    ground,
+    frameLine,
+  ]);
+
   for (const m of [ground, frameLine, top, edge, frame, ...(room ? [room] : [])]) {
     m.isPickable = m === ground; // o piso é usado pelo teletransporte do VR
     m.freezeWorldMatrix();
@@ -223,6 +228,24 @@ export function createScene(engine: Engine, canvas: HTMLCanvasElement): SceneCon
   }
 
   return { scene, camera, ground, tableTopY, sun, shadows };
+}
+
+/**
+ * Ambiente de reflexo (IBL) local: um cubemap da sala (com mipmaps para a
+ * rugosidade) é renderizado UMA vez, substituindo o .env remoto do Babylon.
+ */
+function setupRoomReflections(scene: Scene, at: Vector3, meshes: AbstractMesh[]): void {
+  try {
+    const probe = new ReflectionProbe("ibl_sala", 128, scene, true, true);
+    probe.position.copyFrom(at);
+    probe.refreshRate = RenderTargetTexture.REFRESHRATE_RENDER_ONCE;
+    probe.renderList!.push(...meshes);
+    const cube = probe.cubeTexture;
+    scene.environmentTexture = cube;
+    scene.environmentIntensity = 0.85;
+  } catch (e) {
+    console.warn("[cena] Ambiente IBL indisponível; metais podem parecer escuros.", e);
+  }
 }
 
 /**
