@@ -228,6 +228,11 @@ export const VISUAL = {
   /** Taxa de atualização dos textos de RPM (Hz) — poupa DOM e texturas GUI. */
   uiRefreshHz: 12,
   shadows: true,
+  /**
+   * Cenário imersivo: laboratório de usinagem procedural (paredes com janelas
+   * e sinalização, torno, fresadora, armários). false = fundo grafite neutro.
+   */
+  labRoom: true,
   /** Clique em peças para identificá-las (somente desktop). */
   debugPick: true,
   /**

@@ -19,6 +19,7 @@ import {
   Vector3,
 } from "@babylonjs/core";
 import { SCENE, VISUAL } from "./config";
+import { buildLabRoom, LAB } from "./labRoom";
 
 export interface SceneContext {
   scene: Scene;
@@ -99,21 +100,32 @@ export function createScene(engine: Engine, canvas: HTMLCanvasElement): SceneCon
     console.warn("[cena] Ambiente IBL indisponível; metais podem parecer escuros.", e);
   }
 
-  // ---- Sala (fundo grafite com gradiente discreto) -----------------------
-  const room = MeshBuilder.CreateBox("sala", { width: 16, height: 6, depth: 16, sideOrientation: Mesh.BACKSIDE }, scene);
-  room.position.set(dx, 3 - 0.001, dz);
-  const roomMat = new StandardMaterial("sala_mat", scene);
-  roomMat.disableLighting = true;
-  roomMat.emissiveTexture = makeWallTexture(scene);
-  roomMat.backFaceCulling = false;
-  room.material = roomMat;
+  // ---- Sala: laboratório de usinagem (paredes, máquinas, sinalização) ----
+  // VISUAL.labRoom = false volta ao fundo grafite neutro de "estúdio".
+  let room: Mesh | null = null;
+  if (VISUAL.labRoom) {
+    buildLabRoom(scene);
+  } else {
+    room = MeshBuilder.CreateBox("sala", { width: 16, height: 6, depth: 16, sideOrientation: Mesh.BACKSIDE }, scene);
+    room.position.set(dx, 3 - 0.001, dz);
+    const roomMat = new StandardMaterial("sala_mat", scene);
+    roomMat.disableLighting = true;
+    roomMat.emissiveTexture = makeWallTexture(scene);
+    roomMat.backFaceCulling = false;
+    room.material = roomMat;
+  }
 
   // ---- Piso industrial (concreto selado cinza, rugosidade variável) -------
-  const ground = MeshBuilder.CreateGround("piso", { width: 16, height: 16 }, scene);
-  ground.position.set(dx, 0, dz);
+  // Com o laboratório, o piso acompanha as paredes (o teletransporte do VR
+  // não leva o usuário para fora da sala).
+  const floor = VISUAL.labRoom
+    ? { w: LAB.maxX - LAB.minX, d: LAB.maxZ - LAB.minZ, x: (LAB.minX + LAB.maxX) / 2, z: (LAB.minZ + LAB.maxZ) / 2 }
+    : { w: 16, d: 16, x: dx, z: dz };
+  const ground = MeshBuilder.CreateGround("piso", { width: floor.w, height: floor.d }, scene);
+  ground.position.set(floor.x, 0, floor.z);
   const groundMat = new PBRMaterial("piso_mat", scene);
-  groundMat.albedoTexture = makeConcreteTexture(scene, "piso_albedo", false);
-  groundMat.metallicTexture = makeConcreteTexture(scene, "piso_orm", true);
+  groundMat.albedoTexture = makeConcreteTexture(scene, "piso_albedo", false, floor.w / 2, floor.d / 2);
+  groundMat.metallicTexture = makeConcreteTexture(scene, "piso_orm", true, floor.w / 2, floor.d / 2);
   groundMat.useRoughnessFromMetallicTextureGreen = true;
   groundMat.useMetallnessFromMetallicTextureBlue = true;
   groundMat.metallic = 0;
@@ -191,7 +203,7 @@ export function createScene(engine: Engine, canvas: HTMLCanvasElement): SceneCon
   frame.material = frameMat;
   frame.receiveShadows = true;
 
-  for (const m of [room, ground, frameLine, top, edge, frame]) {
+  for (const m of [ground, frameLine, top, edge, frame, ...(room ? [room] : [])]) {
     m.isPickable = m === ground; // o piso é usado pelo teletransporte do VR
     m.freezeWorldMatrix();
     m.material?.freeze();
@@ -314,7 +326,7 @@ function makeWallTexture(scene: Scene): DynamicTexture {
  * Concreto selado: ruído fino de baixa amplitude + juntas a cada 2 m.
  * `orm`: canal G = rugosidade (0,72–0,92), B = metal (0).
  */
-function makeConcreteTexture(scene: Scene, name: string, orm: boolean): DynamicTexture {
+function makeConcreteTexture(scene: Scene, name: string, orm: boolean, uScale: number, vScale: number): DynamicTexture {
   const s = 512;
   const tex = new DynamicTexture(name, { width: s, height: s }, scene, true);
   const ctx = tex.getContext() as CanvasRenderingContext2D;
@@ -352,8 +364,8 @@ function makeConcreteTexture(scene: Scene, name: string, orm: boolean): DynamicT
     ctx.strokeRect(1, 1, s - 2, s - 2);
   }
   tex.update();
-  tex.uScale = 8; // piso de 16 m → placas de 2 m
-  tex.vScale = 8;
+  tex.uScale = uScale; // placas de 2 m
+  tex.vScale = vScale;
   return tex;
 }
 
