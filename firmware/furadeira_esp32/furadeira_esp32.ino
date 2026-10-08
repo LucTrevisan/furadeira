@@ -78,7 +78,7 @@
 #define ENABLE_MPU6050 1
 #define ENABLE_HCSR04 1
 #define ENABLE_LCD 1
-#define ENABLE_SERVO 1
+#define ENABLE_SERVO 0  // servo (GPIO 10) desabilitado: o pino fica livre
 
 // ---- Rede (mesma rede 2,4 GHz do PC / Meta Quest) ----
 // As credenciais ficam em "secrets.h" (mesma pasta do sketch, ignorado pelo
@@ -266,6 +266,20 @@ uint32_t wifiStartMs = 0;
 void setupWiFi() {
   WiFi.mode(WIFI_STA);
   WiFi.setSleep(false);  // menor latência
+#if IOT_DEBUG
+  // Diagnóstico: redes que a PLACA enxerga (nome, sinal, canal)...
+  int n = WiFi.scanNetworks();
+  DBG("[WIFI] %d rede(s) visível(is):\n", n);
+  for (int i = 0; i < n; i++)
+    DBG("[WIFI]   \"%s\"  %d dBm  canal %d%s\n", WiFi.SSID(i).c_str(), WiFi.RSSI(i), WiFi.channel(i),
+        WiFi.SSID(i) == WIFI_SSID ? "  <-- configurada" : "");
+  WiFi.scanDelete();
+  // ...e o MOTIVO de cada recusa (senha errada, rede não encontrada, etc.).
+  WiFi.onEvent([](arduino_event_id_t, arduino_event_info_t info) {
+    uint8_t r = info.wifi_sta_disconnected.reason;
+    DBG("[WIFI] recusado: motivo %u (%s)\n", r, WiFi.disconnectReasonName((wifi_err_reason_t)r));
+  }, ARDUINO_EVENT_WIFI_STA_DISCONNECTED);
+#endif
   WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
   WiFi.setTxPower(WIFI_TX_POWER);
   wifiStartMs = millis();
