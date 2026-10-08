@@ -33,6 +33,8 @@ export interface XRSetupOptions {
 export interface XRSetup {
   xr: WebXRDefaultExperience;
   enter: () => Promise<void>;
+  /** Realidade aumentada: a mesma experiência, em sessão immersive-ar. */
+  enterAR: () => Promise<void>;
   /** O raio deste controle está apontando para `mesh`? (ex.: painel VR) */
   isPointingAt: (controller: WebXRInputSource, mesh: AbstractMesh) => boolean;
 }
@@ -49,6 +51,20 @@ export async function checkVRSupport(): Promise<{ supported: boolean; reason: st
   return ok
     ? { supported: true, reason: "" }
     : { supported: false, reason: "Nenhum dispositivo VR disponível (use o navegador do Meta Quest)." };
+}
+
+/** Verifica se é possível abrir uma sessão immersive-ar (RA) neste navegador. */
+export async function checkARSupport(): Promise<{ supported: boolean; reason: string }> {
+  if (!window.isSecureContext) {
+    return { supported: false, reason: "RA requer HTTPS (ou localhost)." };
+  }
+  if (!("xr" in navigator)) {
+    return { supported: false, reason: "Este navegador não oferece WebXR." };
+  }
+  const ok = await WebXRSessionManager.IsSessionSupportedAsync("immersive-ar").catch(() => false);
+  return ok
+    ? { supported: true, reason: "" }
+    : { supported: false, reason: "RA indisponível (use o Meta Quest ou o Chrome no Android)." };
 }
 
 /**
@@ -90,6 +106,11 @@ export async function setupXR(scene: Scene, opts: XRSetupOptions): Promise<XRSet
     xr,
     enter: async () => {
       await xr.baseExperience.enterXRAsync("immersive-vr", "local-floor", xr.renderTarget);
+    },
+    // "local" (origem nos olhos de quem entrou) é suportado por toda sessão
+    // imersiva; a furadeira é posicionada à frente do usuário ao entrar.
+    enterAR: async () => {
+      await xr.baseExperience.enterXRAsync("immersive-ar", "local", xr.renderTarget);
     },
     isPointingAt: (controller, mesh) => xr.pointerSelection.getMeshUnderPointer(controller.uniqueId) === mesh,
   };

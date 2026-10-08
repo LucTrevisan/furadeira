@@ -1,7 +1,7 @@
 import "./style.css";
 import { type AbstractMesh, Engine, type Material, Matrix, type Node, RenderTargetTexture, ShadowGenerator, Vector3 } from "@babylonjs/core";
 import { ComponentInspector } from "./components";
-import { CAMERA_VIEW, DRILL, EXPLODE, HAND_DRIVE, IOT, MODEL, SCENE, VISUAL, type XRAction } from "./config";
+import { AR_VIEW, CAMERA_VIEW, DRILL, EXPLODE, HAND_DRIVE, IOT, MODEL, SCENE, VISUAL, type XRAction } from "./config";
 import { enhanceMaterials } from "./materials";
 import { TrainingModule } from "./training";
 import { startUpdateCheck, versionLabel } from "./version";
@@ -14,7 +14,7 @@ import { DrillPlacement } from "./placement";
 import { addContactShadow, createScene, setupDesktopPostProcess } from "./scene";
 import { ControlPanelUI } from "./ui";
 import { VRPanel } from "./vrPanel";
-import { checkVRSupport, setupXR, type XRActionContext, type XRSetup } from "./webxr";
+import { checkARSupport, checkVRSupport, setupXR, type XRActionContext, type XRSetup } from "./webxr";
 import {
   Esp32Link,
   type IoTSensors,
@@ -51,6 +51,11 @@ async function main(): Promise<void> {
   let vrPanel: VRPanel | null = null;
   let xrSetup: XRSetup | null = null;
   let inXR = false;
+  // Realidade aumentada: sessão em andamento é RA? Cenário oculto e deslocamento aplicado.
+  let xrMode: "vr" | "ar" = "vr";
+  let arEnv: AbstractMesh[] = [];
+  let arHidden: AbstractMesh[] = [];
+  let arShift: Vector3 | null = null;
   let triggerHeld = false;
   let inspector: ComponentInspector | null = null;
   let pendingExplode: boolean | null = null;
@@ -122,6 +127,7 @@ async function main(): Promise<void> {
     drill,
     {
       onEnterVR: () => void enterVR(),
+      onEnterAR: () => void enterAR(),
       onFocusToggle: () => toggleFocus(),
       onRealSpeedChange: (real) => {
         if (anim) anim.speedFactor = real ? 1 : VISUAL.antiStrobeFactor;
@@ -171,7 +177,7 @@ async function main(): Promise<void> {
       iot.dirty = true;
     },
     // HC-SR04: aciona a MESMA vista explodida dos botões.
-    onExplode: (on) => explodeTo(on),
+    onExplode: (on) => explodeTo(on, false), // sem mexer no zoom
     onTelemetry: (t) => {
       iot.telemetry = t;
       if (t?.sensors) iot.sensors = t.sensors;
@@ -406,7 +412,7 @@ async function main(): Promise<void> {
       });
       ui.setExplodeAvailable(true);
       if (pendingExplode !== null) {
-        explodeTo(pendingExplode);
+        explodeTo(pendingExplode, false); // pedido do HC-SR04: sem mexer no zoom
         pendingExplode = null;
       }
     }
@@ -456,26 +462,36 @@ async function main(): Promise<void> {
 
   // ===================== C. WebXR (falha aqui não afeta A e B) =============
   try {
-    const support = await checkVRSupport();
-    if (!support.supported) {
+    const [support, arSupport] = await Promise.all([checkVRSupport(), checkARSupport()]);
+    if (!support.supported && !arSupport.supported) {
       ui.setVRAvailable(false, support.reason);
-      console.info("[xr]", support.reason);
+      ui.setARAvailable(false, arSupport.reason);
+      console.info("[xr]", support.reason, "·", arSupport.reason);
       return;
     }
+    // Cenário (sala, bancada, piso…) que some na RA: tudo menos a furadeira e o painel 3D.
+    arEnv = scene.meshes.filter(
+      (m) =>
+        !(placement && m.isDescendantOf(placement.placementNode)) &&
+        !(vrPanel && (m === vrPanel.mesh || m.isDescendantOf(vrPanel.mesh))),
+    );
     xrSetup = await setupXR(scene, {
       floorMeshes: [ctx.ground],
       onAction: handleXRAction,
       onStateChange: onXRStateChange,
       onInitialPose: (cam) => {
+        if (xrMode === "ar") return; // na RA a furadeira vai até o usuário (setARScene)
         // Usuário começa em pé à frente da bancada, olhando para +Z.
         cam.position.x = SCENE.xrStart.x;
         cam.position.z = SCENE.xrStart.z;
       },
     });
-    ui.setVRAvailable(true);
+    ui.setVRAvailable(support.supported, support.reason);
+    ui.setARAvailable(arSupport.supported, arSupport.reason);
   } catch (err) {
     console.warn("[xr] WebXR indisponível:", err);
     ui.setVRAvailable(false, "WebXR indisponível neste navegador.");
+    ui.setARAvailable(false, "WebXR indisponível neste navegador.");
   }
 
   // ===================== Funções auxiliares (declarações içadas) ============
@@ -492,6 +508,47 @@ async function main(): Promise<void> {
     }
   }
 
+  async function enterAR(): Promise<void> {
+    if (!xrSetup) return;
+    xrMode = "ar";
+    try {
+      await xrSetup.enterAR();
+    } catch (err) {
+      xrMode = "vr";
+      ui.setStatus(`Não foi possível entrar em RA: ${(err as Error)?.message ?? err}`, "error");
+    }
+  }
+
+  /**
+   * RA: esconde o cenário virtual (fica a câmera/passthrough) e traz a
+   * furadeira + painel 3D para AR_VIEW.distance à frente de quem entrou,
+   * um pouco abaixo dos olhos. Ao sair, tudo volta ao lugar.
+   */
+  function setARScene(on: boolean): void {
+    if (on) {
+      arHidden = arEnv.filter((m) => !m.isDisposed() && m.isEnabled());
+      arHidden.forEach((m) => m.setEnabled(false));
+      const cam = xrSetup?.xr.baseExperience.camera;
+      if (!placement || !cam) return;
+      const fwd = cam.getDirection(Vector3.Forward());
+      fwd.y = 0;
+      if (fwd.lengthSquared() < 1e-6) fwd.set(0, 0, 1);
+      fwd.normalize();
+      const desired = cam.globalPosition.add(fwd.scale(AR_VIEW.distance)).addInPlace(new Vector3(0, -AR_VIEW.belowEyes, 0));
+      arShift = desired.subtract(placement.placementNode.position);
+      placement.shiftHome(arShift);
+      vrPanel?.mesh.position.addInPlace(arShift);
+    } else {
+      arHidden.forEach((m) => m.setEnabled(true));
+      arHidden = [];
+      if (arShift && placement) {
+        placement.shiftHome(arShift.negate());
+        vrPanel?.mesh.position.subtractInPlace(arShift);
+      }
+      arShift = null;
+    }
+  }
+
   function restoreView(): void {
     if (!savedView) return;
     camera.alpha = savedView.alpha;
@@ -503,12 +560,13 @@ async function main(): Promise<void> {
 
   function onXRStateChange(entered: boolean): void {
     inXR = entered;
+    if (xrMode === "ar") setARScene(entered);
     vrPanel?.setEnabled(entered);
     // No VR o raio dos controles só precisa atingir o painel e o piso.
     model?.meshes.forEach((m) => (m.isPickable = !entered));
     inspector?.clear();
     inspector?.setLabelsVisible(!entered && (explode?.factor ?? 0) > 0.6);
-    ui.setXRActive(entered);
+    ui.setXRActive(entered, xrMode === "ar" ? "RA" : "VR");
     // Sombras: estáticas no VR (economia de GPU no Quest), dinâmicas no desktop.
     const map = ctx.shadows?.getShadowMap();
     if (map) {
@@ -521,6 +579,7 @@ async function main(): Promise<void> {
       if (triggerHeld) drill.stopDrill();
       triggerHeld = false;
       restoreView();
+      xrMode = "vr";
       requestRender(5);
     }
   }
@@ -614,15 +673,18 @@ async function main(): Promise<void> {
     explodeTo(explode.factor <= 0.5);
   }
 
-  /** Explode (true) ou monta (false) — botões, teclado, VR e HC-SR04. */
-  function explodeTo(exploded: boolean): void {
+  /**
+   * Explode (true) ou monta (false) — botões, teclado, VR e HC-SR04.
+   * `moveCamera` = false mantém o zoom atual (usado pelo HC-SR04).
+   */
+  function explodeTo(exploded: boolean, moveCamera = true): void {
     if (!explode?.isReady) {
       // Pedido (ex.: HC-SR04) antes do modelo terminar de carregar: aplica depois.
       pendingExplode = exploded;
       return;
     }
     explode.animateTo(exploded ? 1 : 0);
-    if (!inXR && !focused && homeView) {
+    if (moveCamera && !inXR && !focused && homeView) {
       animateCamera(placement!.placementNode.position, fitRadius() * (exploded ? 1.5 : 1));
     }
   }

@@ -117,6 +117,14 @@ export class DrillPlacement {
     this.inspecting = false;
   }
 
+  /** Desloca a posição de repouso (e a atual) — usado ao entrar/sair da RA. */
+  shiftHome(delta: Vector3): void {
+    this.homePosition.addInPlace(delta);
+    this.placementNode.position.addInPlace(delta);
+    this.target?.addInPlace(delta);
+    refreshWorld(this.placementNode);
+  }
+
   /** Reposiciona imediatamente (reset). */
   resetPose(): void {
     this.target = null;

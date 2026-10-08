@@ -407,3 +407,11 @@ export const IOT = {
     prebuffer: 6,
   },
 };
+
+/** Realidade aumentada: onde a furadeira aparece ao entrar (relativo aos olhos). */
+export const AR_VIEW = {
+  /** Distância à frente do usuário (m). */
+  distance: 0.7,
+  /** Quanto abaixo da linha dos olhos (m). */
+  belowEyes: 0.35,
+};

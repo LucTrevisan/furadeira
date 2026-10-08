@@ -644,6 +644,7 @@ body.xr-active .workspace { grid-template-columns: 1fr; }
   .brand-text p, .xr-badge, .btn-panel .lbl, #iotBadgeText { display: none; }
   .brand-text h1 { font-size: 15px; }
   .btn-vr { padding: 0 var(--s3); }
+  .btn-vr:disabled { display: none; } /* celular: mostra só o modo disponível */
   .vp-toolbar .btn span { display: none; }
   .toasts { bottom: 56px; width: calc(100% - 24px); }
   .toast { white-space: normal; }

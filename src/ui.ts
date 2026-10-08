@@ -9,6 +9,7 @@ export type ToastKind = "ok" | "info" | "warn" | "err";
 
 export interface UIHandlers {
   onEnterVR: () => void;
+  onEnterAR: () => void;
   /** Alterna o foco no mandril; retorna true se ficou focado. */
   onFocusToggle: () => boolean;
   onRealSpeedChange: (real: boolean) => void;
@@ -72,6 +73,7 @@ export class ControlPanelUI {
   private readonly btnOn = $<HTMLButtonElement>("btnOn");
   private readonly btnOff = $<HTMLButtonElement>("btnOff");
   private readonly btnVR = $<HTMLButtonElement>("btnVR");
+  private readonly btnAR = $<HTMLButtonElement>("btnAR");
   private readonly btnSplashVR = $<HTMLButtonElement>("btnSplashVR");
   private readonly xrBadge = $<HTMLSpanElement>("xrBadge");
   private readonly xrBadgeText = $<HTMLSpanElement>("xrBadgeText");
@@ -121,6 +123,7 @@ export class ControlPanelUI {
 
     // ---- VR, câmera e visualização ----------------------------------------
     this.btnVR.addEventListener("click", () => handlers.onEnterVR());
+    this.btnAR.addEventListener("click", () => handlers.onEnterAR());
     this.btnHome.addEventListener("click", () => handlers.onHome());
     this.btnFocus.addEventListener("click", () => this.setFocused(handlers.onFocusToggle()));
 
@@ -295,13 +298,23 @@ export class ControlPanelUI {
       : `Modo desktop · ${reason || "VR indisponível neste navegador"}`;
   }
 
-  /** Sessão VR ativa: oculta a interface desktop (não aparece no headset). */
-  setXRActive(active: boolean): void {
+  /** Realidade aumentada (immersive-ar): Meta Quest (passthrough) ou Chrome no Android. */
+  setARAvailable(available: boolean, reason = ""): void {
+    this.btnAR.disabled = !available;
+    this.btnAR.title = available ? "Ver a furadeira no ambiente real (realidade aumentada)" : reason;
+    if (available) {
+      this.xrBadge.dataset.state = "ready";
+      this.xrBadgeText.textContent = "WebXR ready";
+    }
+  }
+
+  /** Sessão VR/RA ativa: oculta a interface desktop (não aparece no headset). */
+  setXRActive(active: boolean, mode: "VR" | "RA" = "VR"): void {
     document.body.classList.toggle("xr-active", active);
     this.hideTooltip();
-    if (active) this.setSystemState("xr", "Sessão VR ativa");
+    if (active) this.setSystemState("xr", `Sessão ${mode} ativa`);
     else this.setSystemState("ready", "Sistema pronto");
-    this.toast(active ? "Sessão VR iniciada" : "Sessão VR encerrada", "info");
+    this.toast(active ? `Sessão ${mode} iniciada` : `Sessão ${mode} encerrada`, "info");
   }
 
   /** Reflete o fator da vista explodida (0..1) no slider, rótulo e botão. */
